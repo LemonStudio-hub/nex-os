@@ -1,0 +1,21 @@
+# Rust build artifacts
+/target/
+
+# wasm-bindgen generated output (regenerated on build)
+/pkg/
+
+# Node modules
+web/node_modules/
+
+# Vite build output (regenerated on build)
+web/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
