@@ -5,7 +5,7 @@
 /// Returns a formatted table of all available commands with short descriptions.
 pub fn execute() -> String {
     let commands = [
-        // Navigation & filesystem
+        // Filesystem navigation
         ("ls", "List directory contents (-l for long format)"),
         ("cd", "Change the current directory"),
         ("pwd", "Print the current working directory"),
@@ -14,6 +14,7 @@ pub fn execute() -> String {
         ("rm", "Remove files or directories (-r for recursive)"),
         ("cp", "Copy files or directories"),
         ("mv", "Move or rename files and directories"),
+        ("ln", "Create links (-s for symbolic)"),
         ("tree", "Display directory tree structure"),
         // File content
         ("cat", "Display file contents"),
@@ -25,13 +26,31 @@ pub fn execute() -> String {
         ("sort", "Sort lines of a file (-r for reverse)"),
         ("uniq", "Filter adjacent duplicate lines (-c for counts)"),
         ("wc", "Count lines, words, and characters (-l -w -c)"),
+        ("cut", "Extract fields from each line (-f FIELDS -d DELIM)"),
+        ("tr", "Translate characters from stdin (echo text | tr a-z A-Z)"),
+        ("tee", "Write stdin to stdout and files (-a for append)"),
+        // Comparison
+        ("diff", "Compare two files line by line"),
         // Search
         ("find", "Find files by name (find [path] -name PATTERN)"),
+        // Disk usage
+        ("du", "Estimate disk usage (-h human-readable, -s summary)"),
+        // Permissions & ownership (simulated)
+        ("chmod", "Change file permissions (octal or symbolic)"),
+        ("chown", "Change file ownership (owner[:group])"),
         // System info
         ("whoami", "Display the current username"),
         ("hostname", "Display the system hostname"),
         ("date", "Display the current date and time"),
         ("history", "Display command history"),
+        // Environment
+        ("env", "Display environment variables"),
+        ("export", "Set environment variables (export KEY=VALUE)"),
+        // Path utilities
+        ("basename", "Strip directory from filename"),
+        ("dirname", "Strip filename from path"),
+        // Documentation
+        ("man", "Display manual page for a command"),
         // Terminal
         ("clear", "Clear the terminal screen"),
         ("help", "Display this help message"),

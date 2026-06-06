@@ -2,6 +2,7 @@
 
 use crate::command;
 use crate::vfs::Vfs;
+use std::collections::HashMap;
 
 /// Shell state
 pub struct Shell {
@@ -9,16 +10,31 @@ pub struct Shell {
     pub username: String,
     pub hostname: String,
     pub history: Vec<String>,
+    pub env_vars: HashMap<String, String>,
 }
 
 impl Shell {
     /// Create a new shell with default user and hostname
     pub fn new(vfs: Vfs) -> Self {
+        let username = "user".to_string();
+        let hostname = "web-code".to_string();
+
+        // Populate default environment variables
+        let mut env_vars = HashMap::new();
+        env_vars.insert("USER".to_string(), username.clone());
+        env_vars.insert("HOSTNAME".to_string(), hostname.clone());
+        env_vars.insert("HOME".to_string(), "/home/user".to_string());
+        env_vars.insert("SHELL".to_string(), "/bin/web-sh".to_string());
+        env_vars.insert("PATH".to_string(), "/usr/bin:/bin".to_string());
+        env_vars.insert("PWD".to_string(), "/".to_string());
+        env_vars.insert("TERM".to_string(), "xterm-256color".to_string());
+
         Shell {
             vfs,
-            username: "user".to_string(),
-            hostname: "web-code".to_string(),
+            username,
+            hostname,
             history: Vec::new(),
+            env_vars,
         }
     }
 
@@ -43,6 +59,10 @@ impl Shell {
             return String::new();
         }
         self.history.push(input.to_string());
+
+        // Update PWD env var to match current directory
+        self.env_vars
+            .insert("PWD".to_string(), self.vfs.cwd.clone());
 
         // Step 1: Split by `&&` (sequential execution, stop on error)
         let segments: Vec<&str> = input
@@ -139,12 +159,18 @@ impl Shell {
         for i in 0..tokens.len() {
             if tokens[i] == ">>" && i + 1 < tokens.len() {
                 let cmd_part = tokens[..i].join(" ");
-                let target = tokens[i + 1].trim_matches('\'').trim_matches('"').to_string();
+                let target = tokens[i + 1]
+                    .trim_matches('\'')
+                    .trim_matches('"')
+                    .to_string();
                 return (cmd_part, Some((target, true)));
             }
             if tokens[i] == ">" && i + 1 < tokens.len() {
                 let cmd_part = tokens[..i].join(" ");
-                let target = tokens[i + 1].trim_matches('\'').trim_matches('"').to_string();
+                let target = tokens[i + 1]
+                    .trim_matches('\'')
+                    .trim_matches('"')
+                    .to_string();
                 return (cmd_part, Some((target, false)));
             }
         }
@@ -152,13 +178,21 @@ impl Shell {
         // Fallback: check for `cmd>>file` or `cmd>file` (no spaces)
         if let Some(idx) = cmd.find(">>") {
             let cmd_part = cmd[..idx].trim().to_string();
-            let target = cmd[idx + 2..].trim().trim_matches('\'').trim_matches('"').to_string();
+            let target = cmd[idx + 2..]
+                .trim()
+                .trim_matches('\'')
+                .trim_matches('"')
+                .to_string();
             if !cmd_part.is_empty() && !target.is_empty() {
                 return (cmd_part, Some((target, true)));
             }
         } else if let Some(idx) = cmd.find('>') {
             let cmd_part = cmd[..idx].trim().to_string();
-            let target = cmd[idx + 1..].trim().trim_matches('\'').trim_matches('"').to_string();
+            let target = cmd[idx + 1..]
+                .trim()
+                .trim_matches('\'')
+                .trim_matches('"')
+                .to_string();
             if !cmd_part.is_empty() && !target.is_empty() {
                 return (cmd_part, Some((target, false)));
             }
@@ -216,7 +250,7 @@ impl Shell {
 
         // Commands that read file contents — they accept stdin as a synthetic argument
         let file_reading_commands = [
-            "cat", "head", "tail", "wc", "grep", "sort", "uniq",
+            "cat", "head", "tail", "wc", "grep", "sort", "uniq", "cut",
         ];
 
         let cmd_name = tokens[0];
@@ -240,31 +274,68 @@ impl Shell {
         let args_slice = effective_args.as_slice();
 
         match cmd_name {
+            // Filesystem navigation
             "ls" => command::ls::execute(&self.vfs, args_slice),
             "cd" => command::cd::execute(&mut self.vfs, args_slice),
             "pwd" => command::pwd::execute(&self.vfs),
             "mkdir" => command::mkdir::execute(&mut self.vfs, args_slice),
             "touch" => command::touch::execute(&mut self.vfs, args_slice),
             "rm" => command::rm::execute(&mut self.vfs, args_slice),
-            "cat" => command::cat::execute(&self.vfs, args_slice),
-            "echo" => command::echo::execute(&mut self.vfs, args_slice),
             "cp" => command::cp::execute(&mut self.vfs, args_slice),
             "mv" => command::mv::execute(&mut self.vfs, args_slice),
             "tree" => command::tree::execute(&self.vfs, args_slice),
-            "clear" => Ok("\x1b[2J\x1b[H".to_string()),
-            "help" => Ok(command::help::execute()),
-            "exit" => Ok(String::new()),
+            "ln" => command::ln::execute(&mut self.vfs, args_slice),
+
+            // File content
+            "cat" => command::cat::execute(&self.vfs, args_slice),
+            "echo" => command::echo::execute(&mut self.vfs, args_slice),
             "head" => command::head::execute(&self.vfs, args_slice),
             "tail" => command::tail::execute(&self.vfs, args_slice),
-            "wc" => command::wc::execute(&self.vfs, args_slice),
+
+            // Text processing
             "grep" => command::grep::execute(&self.vfs, args_slice),
-            "find" => command::find::execute(&self.vfs, args_slice),
             "sort" => command::sort::execute(&self.vfs, args_slice),
             "uniq" => command::uniq::execute(&self.vfs, args_slice),
+            "wc" => command::wc::execute(&self.vfs, args_slice),
+            "cut" => command::cut::execute(&self.vfs, args_slice),
+            "tr" => command::tr::execute(stdin, args_slice),
+            "tee" => command::tee::execute(&mut self.vfs, stdin, args_slice),
+
+            // Diff
+            "diff" => command::diff::execute(&self.vfs, args_slice),
+
+            // Search
+            "find" => command::find::execute(&self.vfs, args_slice),
+
+            // Disk usage
+            "du" => command::du::execute(&self.vfs, args_slice),
+
+            // Permissions & ownership (simulated)
+            "chmod" => command::chmod::execute(&mut self.vfs, args_slice),
+            "chown" => command::chown::execute(args_slice),
+
+            // System info
             "whoami" => command::whoami::execute(&self.username),
             "hostname" => command::hostname::execute(&self.hostname),
             "date" => command::date::execute(),
             "history" => command::history::execute(&self.history),
+
+            // Environment
+            "env" => command::env::execute(&self.env_vars),
+            "export" => command::export::execute(&mut self.env_vars, args_slice),
+
+            // Path utilities
+            "basename" => command::basename::execute(args_slice),
+            "dirname" => command::dirname::execute(args_slice),
+
+            // Documentation
+            "man" => command::man::execute(args_slice),
+
+            // Terminal
+            "clear" => Ok("\x1b[2J\x1b[H".to_string()),
+            "help" => Ok(command::help::execute()),
+            "exit" => Ok(String::new()),
+
             _ => Err(format!("command not found: {}", cmd_name)),
         }
     }
@@ -274,7 +345,8 @@ impl Shell {
         let commands = [
             "ls", "cd", "pwd", "mkdir", "touch", "rm", "cat", "echo", "cp", "mv", "tree",
             "clear", "help", "exit", "head", "tail", "wc", "grep", "find", "sort", "uniq",
-            "whoami", "hostname", "date", "history",
+            "whoami", "hostname", "date", "history", "diff", "du", "tr", "cut", "tee", "ln",
+            "chmod", "chown", "man", "env", "export", "basename", "dirname",
         ];
         commands
             .iter()
@@ -287,5 +359,4 @@ impl Shell {
     pub fn get_history(&self) -> &Vec<String> {
         &self.history
     }
-
 }
