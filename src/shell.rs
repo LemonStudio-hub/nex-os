@@ -109,7 +109,8 @@ impl Shell {
     pub fn get_completions(&self, partial: &str) -> Vec<String> {
         let commands = [
             "ls", "cd", "pwd", "mkdir", "touch", "rm", "cat", "echo", "cp", "mv", "tree",
-            "clear", "help", "exit",
+            "clear", "help", "exit", "head", "tail", "wc", "grep", "find", "sort", "uniq",
+            "whoami", "hostname", "date", "history",
         ];
         commands
             .iter()
@@ -169,6 +170,17 @@ impl Shell {
             "clear" => Ok("\x1b[2J\x1b[H".to_string()),
             "help" => Ok(command::help::execute()),
             "exit" => Ok(String::new()),
+            "head" => command::head::execute(&self.vfs, args),
+            "tail" => command::tail::execute(&self.vfs, args),
+            "wc" => command::wc::execute(&self.vfs, args),
+            "grep" => command::grep::execute(&self.vfs, args),
+            "find" => command::find::execute(&self.vfs, args),
+            "sort" => command::sort::execute(&self.vfs, args),
+            "uniq" => command::uniq::execute(&self.vfs, args),
+            "whoami" => command::whoami::execute(&self.username),
+            "hostname" => command::hostname::execute(&self.hostname),
+            "date" => command::date::execute(),
+            "history" => command::history::execute(&self.history),
             _ => Err(format!("command not found: {}", cmd_name)),
         }
     }
