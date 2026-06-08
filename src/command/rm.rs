@@ -31,7 +31,11 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
             return Err(format!("rm: cannot remove '{}': Is a directory", path));
         }
 
-        vfs.rm(&resolved)?;
+        if recursive {
+            vfs.rm_recursive(&resolved)?;
+        } else {
+            vfs.rm(&resolved)?;
+        }
     }
 
     Ok(String::new())

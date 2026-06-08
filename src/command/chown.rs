@@ -23,3 +23,31 @@ pub fn execute(args: &[&str]) -> Result<String, String> {
     // Here we just validate and confirm.
     Ok(String::new())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_owner() {
+        let out = execute(&["alice", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn valid_owner_with_group() {
+        let out = execute(&["alice:staff", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn missing_operand() {
+        assert!(execute(&[]).is_err());
+        assert!(execute(&["alice"]).is_err());
+    }
+
+    #[test]
+    fn empty_owner_errors() {
+        assert!(execute(&["", "/tmp/f.txt"]).is_err());
+    }
+}

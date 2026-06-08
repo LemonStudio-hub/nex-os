@@ -224,9 +224,7 @@ impl Shell {
                     } else {
                         self.vfs.write_file(target, &result)
                     };
-                    if let Err(e) = write_result {
-                        return Err(e);
-                    }
+                    write_result?;
                     // When redirecting to a file, produce no terminal output
                     return Ok(String::new());
                 }
@@ -249,27 +247,27 @@ impl Shell {
         }
 
         // Commands that read file contents — they accept stdin as a synthetic argument
-        let file_reading_commands = [
-            "cat", "head", "tail", "wc", "grep", "sort", "uniq", "cut",
-        ];
+        let file_reading_commands = ["cat", "head", "tail", "wc", "grep", "sort", "uniq", "cut"];
 
         let cmd_name = tokens[0];
         let args = &tokens[1..];
 
         // If stdin is non-empty and the command can consume it as file data,
-        // and no explicit file argument was given, pass stdin as a trailing arg.
-        let stdin_string;
-        let effective_args: Vec<&str> = if !stdin.is_empty()
-            && file_reading_commands.contains(&cmd_name)
-            && !args.iter().any(|a| !a.starts_with('-'))
-        {
-            stdin_string = stdin.to_string();
-            let mut new_args: Vec<&str> = args.to_vec();
-            new_args.push(&stdin_string);
-            new_args
-        } else {
-            args.to_vec()
-        };
+        // write stdin to a temp file and pass that file path as a trailing argument.
+        // This allows commands like `echo hello | grep hello` to work — grep's
+        // first positional arg is the pattern, not a file, so stdin must still be passed.
+        let temp_path;
+        let effective_args: Vec<&str> =
+            if !stdin.is_empty() && file_reading_commands.contains(&cmd_name) {
+                // Write stdin content to a temp file so file-reading commands can consume it
+                temp_path = "/tmp/.pipe_input".to_string();
+                let _ = self.vfs.write_file(&temp_path, stdin);
+                let mut new_args: Vec<&str> = args.to_vec();
+                new_args.push(&temp_path);
+                new_args
+            } else {
+                args.to_vec()
+            };
 
         let args_slice = effective_args.as_slice();
 
@@ -343,10 +341,10 @@ impl Shell {
     /// Get tab completion candidates for a partial input
     pub fn get_completions(&self, partial: &str) -> Vec<String> {
         let commands = [
-            "ls", "cd", "pwd", "mkdir", "touch", "rm", "cat", "echo", "cp", "mv", "tree",
-            "clear", "help", "exit", "head", "tail", "wc", "grep", "find", "sort", "uniq",
-            "whoami", "hostname", "date", "history", "diff", "du", "tr", "cut", "tee", "ln",
-            "chmod", "chown", "man", "env", "export", "basename", "dirname",
+            "ls", "cd", "pwd", "mkdir", "touch", "rm", "cat", "echo", "cp", "mv", "tree", "clear",
+            "help", "exit", "head", "tail", "wc", "grep", "find", "sort", "uniq", "whoami",
+            "hostname", "date", "history", "diff", "du", "tr", "cut", "tee", "ln", "chmod",
+            "chown", "man", "env", "export", "basename", "dirname",
         ];
         commands
             .iter()

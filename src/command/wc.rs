@@ -82,3 +82,66 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vfs_with_content(content: &str) -> Vfs {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/f.txt", content).unwrap();
+        vfs
+    }
+
+    #[test]
+    fn default_shows_all_counts() {
+        let vfs = vfs_with_content("hello world\nfoo bar");
+        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        assert!(out.contains("2")); // 2 lines
+        assert!(out.contains("4")); // 4 words
+    }
+
+    #[test]
+    fn lines_only() {
+        let vfs = vfs_with_content("a\nb\nc");
+        let out = execute(&vfs, &["-l", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("3"));
+    }
+
+    #[test]
+    fn words_only() {
+        let vfs = vfs_with_content("one two three");
+        let out = execute(&vfs, &["-w", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("3"));
+    }
+
+    #[test]
+    fn chars_only() {
+        let vfs = vfs_with_content("abc");
+        let out = execute(&vfs, &["-c", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("3"));
+    }
+
+    #[test]
+    fn empty_file() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/empty.txt", "").unwrap();
+        let out = execute(&vfs, &["/tmp/empty.txt"]).unwrap();
+        assert!(out.contains("0"));
+    }
+
+    #[test]
+    fn multiple_files_shows_total() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "hello").unwrap();
+        vfs.write_file("/tmp/b.txt", "world").unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert!(out.contains("total"));
+    }
+
+    #[test]
+    fn missing_file() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &[]).is_err());
+    }
+}

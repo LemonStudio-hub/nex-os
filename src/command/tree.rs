@@ -22,14 +22,27 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     if resolved == "/" {
         output.push('/');
     } else {
-        let root_name = resolved.rfind('/').map(|i| &resolved[i + 1..]).unwrap_or(&resolved);
+        let root_name = resolved
+            .rfind('/')
+            .map(|i| &resolved[i + 1..])
+            .unwrap_or(&resolved);
         output.push_str(root_name);
     }
     output.push('\n');
 
-    build_tree(vfs, &resolved, "", &mut output, &mut dir_count, &mut file_count);
+    build_tree(
+        vfs,
+        &resolved,
+        "",
+        &mut output,
+        &mut dir_count,
+        &mut file_count,
+    );
 
-    output.push_str(&format!("\n{} directories, {} files\n", dir_count, file_count));
+    output.push_str(&format!(
+        "\n{} directories, {} files\n",
+        dir_count, file_count
+    ));
     Ok(output)
 }
 
@@ -87,7 +100,14 @@ fn build_tree(
                 };
 
                 let child_prefix = format!("{}{}", prefix, next_prefix);
-                build_tree(vfs, &child_path, &child_prefix, output, dir_count, file_count);
+                build_tree(
+                    vfs,
+                    &child_path,
+                    &child_prefix,
+                    output,
+                    dir_count,
+                    file_count,
+                );
             }
         }
     }

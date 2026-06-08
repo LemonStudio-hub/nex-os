@@ -114,7 +114,7 @@ fn format_size(bytes: usize, human: bool) -> String {
         }
     } else {
         // Display in KB (like real `du`)
-        let kb = (bytes + 1023) / 1024;
+        let kb = bytes.div_ceil(1024);
         format!("{}K", kb)
     }
 }

@@ -62,3 +62,57 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vfs_with_content(content: &str) -> Vfs {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/f.txt", content).unwrap();
+        vfs
+    }
+
+    #[test]
+    fn extract_single_field() {
+        let vfs = vfs_with_content("a\tb\tc");
+        let out = execute(&vfs, &["-f", "2", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("b"));
+    }
+
+    #[test]
+    fn extract_multiple_fields() {
+        let vfs = vfs_with_content("a,b,c\nd,e,f");
+        let out = execute(&vfs, &["-f", "1,3", "-d", ",", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("a,c"));
+        assert!(out.contains("d,f"));
+    }
+
+    #[test]
+    fn out_of_range_field_skipped() {
+        let vfs = vfs_with_content("a,b");
+        let out = execute(&vfs, &["-f", "1,5", "-d", ",", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("a"));
+        assert!(!out.contains("5"));
+    }
+
+    #[test]
+    fn missing_f_flag() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["/tmp/f.txt"]).is_err());
+    }
+
+    #[test]
+    fn missing_file() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["-f", "1"]).is_err());
+    }
+
+    #[test]
+    fn default_delimiter_is_tab() {
+        let vfs = vfs_with_content("x\ty\tz");
+        let out = execute(&vfs, &["-f", "1,3", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("x"));
+        assert!(out.contains("z"));
+    }
+}

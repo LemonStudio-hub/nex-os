@@ -27,7 +27,10 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     // If target is a file, just print its name
     if !vfs.is_dir(&resolved) {
-        let name = resolved.rfind('/').map(|i| &resolved[i + 1..]).unwrap_or(&resolved);
+        let name = resolved
+            .rfind('/')
+            .map(|i| &resolved[i + 1..])
+            .unwrap_or(&resolved);
         return if long_format {
             Ok(format!("- {}\n", name))
         } else {
@@ -73,5 +76,66 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
         } else {
             Ok(format!("{}\n", names.join("  ")))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_directory() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "").unwrap();
+        vfs.mkdir("/tmp/sub").unwrap();
+        let out = execute(&vfs, &["/tmp"]).unwrap();
+        assert!(out.contains("a.txt"));
+        assert!(out.contains("sub/"));
+    }
+
+    #[test]
+    fn list_file_shows_name() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/f.txt", "").unwrap();
+        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        assert!(out.contains("f.txt"));
+    }
+
+    #[test]
+    fn long_format() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/f.txt", "").unwrap();
+        vfs.mkdir("/tmp/d").unwrap();
+        let out = execute(&vfs, &["-l", "/tmp"]).unwrap();
+        assert!(out.contains("- f.txt"));
+        assert!(out.contains("d d/"));
+    }
+
+    #[test]
+    fn empty_directory() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("/tmp/empty").unwrap();
+        let out = execute(&vfs, &["/tmp/empty"]).unwrap();
+        assert!(!out.is_empty()); // still outputs a newline
+    }
+
+    #[test]
+    fn nonexistent_path() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["/nonexistent"]).is_err());
+    }
+
+    #[test]
+    fn sorted_output() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/b.txt", "").unwrap();
+        vfs.write_file("/tmp/a.txt", "").unwrap();
+        vfs.write_file("/tmp/c.txt", "").unwrap();
+        let out = execute(&vfs, &["/tmp"]).unwrap();
+        let a = out.find("a.txt").unwrap();
+        let b = out.find("b.txt").unwrap();
+        let c = out.find("c.txt").unwrap();
+        assert!(a < b);
+        assert!(b < c);
     }
 }

@@ -67,3 +67,51 @@ fn collect_matches(vfs: &Vfs, dir_path: &str, pattern: &str, results: &mut Vec<S
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_vfs() -> Vfs {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("/tmp/search").unwrap();
+        vfs.write_file("/tmp/search/readme.txt", "").unwrap();
+        vfs.write_file("/tmp/search/data.csv", "").unwrap();
+        vfs.write_file("/tmp/search/readme.md", "").unwrap();
+        vfs.mkdir("/tmp/search/sub").unwrap();
+        vfs.write_file("/tmp/search/sub/readme.log", "").unwrap();
+        vfs
+    }
+
+    #[test]
+    fn find_by_name() {
+        let vfs = setup_vfs();
+        let out = execute(&vfs, &["/tmp/search", "-name", "readme"]).unwrap();
+        assert!(out.contains("readme.txt"));
+        assert!(out.contains("readme.md"));
+        assert!(out.contains("readme.log"));
+        assert!(!out.contains("data.csv"));
+    }
+
+    #[test]
+    fn find_no_results() {
+        let vfs = setup_vfs();
+        let out = execute(&vfs, &["/tmp/search", "-name", "nonexistent"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn find_from_current_dir() {
+        let mut vfs = Vfs::new();
+        vfs.cwd = "/tmp".to_string();
+        vfs.write_file("/tmp/target.txt", "").unwrap();
+        let out = execute(&vfs, &["-name", "target"]).unwrap();
+        assert!(out.contains("target.txt"));
+    }
+
+    #[test]
+    fn find_missing_name_arg() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["/tmp"]).is_err());
+    }
+}

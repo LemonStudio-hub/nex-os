@@ -45,3 +45,63 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     let lines: Vec<&str> = all_lines.into_iter().skip(skip).collect();
     Ok(format!("{}\n", lines.join("\n")))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vfs_with_lines(n: usize) -> Vfs {
+        let mut vfs = Vfs::new();
+        let content: String = (1..=n)
+            .map(|i| format!("line{}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        vfs.write_file("/tmp/f.txt", &content).unwrap();
+        vfs
+    }
+
+    #[test]
+    fn default_ten_lines() {
+        let vfs = vfs_with_lines(20);
+        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        assert!(out.contains("line11"));
+        assert!(out.contains("line20"));
+        assert!(!out.contains("line10"));
+    }
+
+    #[test]
+    fn custom_count() {
+        let vfs = vfs_with_lines(20);
+        let out = execute(&vfs, &["-n", "3", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("line18"));
+        assert!(out.contains("line20"));
+    }
+
+    #[test]
+    fn compact_n_flag() {
+        let vfs = vfs_with_lines(10);
+        let out = execute(&vfs, &["-n2", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("line9"));
+        assert!(out.contains("line10"));
+    }
+
+    #[test]
+    fn file_shorter_than_count() {
+        let vfs = vfs_with_lines(3);
+        let out = execute(&vfs, &["-n", "10", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("line1"));
+        assert!(out.contains("line3"));
+    }
+
+    #[test]
+    fn missing_file() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &[]).is_err());
+    }
+
+    #[test]
+    fn invalid_count() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["-n", "abc", "/tmp/f.txt"]).is_err());
+    }
+}

@@ -28,7 +28,10 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
         // In a full implementation we would store permissions in node metadata.
         // Here we just verify the path exists.
         if vfs.read_file(&resolved).is_err() && vfs.list_dir(&resolved).is_err() {
-            output.push_str(&format!("chmod: cannot access '{}': No such file or directory\n", path));
+            output.push_str(&format!(
+                "chmod: cannot access '{}': No such file or directory\n",
+                path
+            ));
         }
         // Confirm the change (simulated)
     }
@@ -39,7 +42,7 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 /// Check whether a mode string looks valid (octal or symbolic).
 fn is_valid_mode(mode: &str) -> bool {
     // Octal: 3-4 digits, each 0-7
-    if mode.chars().all(|c| c >= '0' && c <= '7') && (mode.len() == 3 || mode.len() == 4) {
+    if mode.chars().all(|c| ('0'..='7').contains(&c)) && (mode.len() == 3 || mode.len() == 4) {
         return true;
     }
     // Symbolic: e.g. +x, -w, +rw, u+x, a+r
@@ -57,4 +60,86 @@ fn is_valid_mode(mode: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_octal_3digit() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/tmp/f.txt").unwrap();
+        let out = execute(&mut vfs, &["755", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn valid_octal_4digit() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/tmp/f.txt").unwrap();
+        let out = execute(&mut vfs, &["0644", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn valid_symbolic_plus() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/tmp/f.txt").unwrap();
+        let out = execute(&mut vfs, &["+x", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn valid_symbolic_minus() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/tmp/f.txt").unwrap();
+        let out = execute(&mut vfs, &["-w", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn valid_symbolic_with_prefix() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/tmp/f.txt").unwrap();
+        let out = execute(&mut vfs, &["u+rwx", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn invalid_mode() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/tmp/f.txt").unwrap();
+        let err = execute(&mut vfs, &["invalid", "/tmp/f.txt"]).unwrap_err();
+        assert!(err.contains("invalid mode"));
+    }
+
+    #[test]
+    fn missing_operand() {
+        let mut vfs = Vfs::new();
+        assert!(execute(&mut vfs, &[]).is_err());
+    }
+
+    #[test]
+    fn nonexistent_file_reports_error() {
+        let mut vfs = Vfs::new();
+        let out = execute(&mut vfs, &["755", "/nonexistent"]).unwrap();
+        assert!(out.contains("No such file or directory"));
+    }
+
+    #[test]
+    fn is_valid_mode_checks() {
+        assert!(is_valid_mode("755"));
+        assert!(is_valid_mode("644"));
+        assert!(is_valid_mode("0777"));
+        assert!(is_valid_mode("+x"));
+        assert!(is_valid_mode("-w"));
+        assert!(is_valid_mode("+rwx"));
+        assert!(is_valid_mode("u+r"));
+        assert!(is_valid_mode("g-w"));
+        assert!(is_valid_mode("a+x"));
+        assert!(!is_valid_mode("invalid"));
+        assert!(!is_valid_mode("999"));
+        assert!(!is_valid_mode("12345"));
+    }
 }

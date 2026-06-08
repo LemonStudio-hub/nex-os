@@ -73,7 +73,7 @@ fn compute_diff(a: &[&str], b: &[&str], name_a: &str, name_b: &str) -> Vec<Strin
     ops.reverse();
 
     // Group consecutive changes into hunks
-    let mut output = vec![format!("--- {}", name_a), format!("+++ {}", name_b)];
+    let mut output: Vec<String> = Vec::new();
     let mut idx = 0;
     while idx < ops.len() {
         if ops[idx].0 == ' ' {
@@ -93,9 +93,69 @@ fn compute_diff(a: &[&str], b: &[&str], name_a: &str, name_b: &str) -> Vec<Strin
             hunk_lines.push(format!("{} {}", prefix, ops[idx].2));
             idx += 1;
         }
+        if output.is_empty() {
+            output.push(format!("--- {}", name_a));
+            output.push(format!("+++ {}", name_b));
+        }
         output.push(format!("@@ line {} @@", start_a));
         output.extend(hunk_lines);
     }
 
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identical_files_empty_output() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "line1\nline2").unwrap();
+        vfs.write_file("/tmp/b.txt", "line1\nline2").unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn different_files_shows_diff() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "hello").unwrap();
+        vfs.write_file("/tmp/b.txt", "world").unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert!(!out.is_empty());
+        assert!(out.contains("-") || out.contains("+"));
+    }
+
+    #[test]
+    fn missing_args() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &[]).is_err());
+        assert!(execute(&vfs, &["/tmp/a.txt"]).is_err());
+    }
+
+    #[test]
+    fn too_many_args() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["a", "b", "c"]).is_err());
+    }
+
+    #[test]
+    fn empty_files_are_identical() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "").unwrap();
+        vfs.write_file("/tmp/b.txt", "").unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn one_empty_one_nonempty() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "").unwrap();
+        vfs.write_file("/tmp/b.txt", "content").unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert!(!out.is_empty());
+        assert!(out.contains("+"));
+    }
 }

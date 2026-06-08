@@ -23,3 +23,29 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
     vfs.mv(&src_resolved, &dst_resolved)?;
     Ok(String::new())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn move_file() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/old.txt", "data").unwrap();
+        execute(&mut vfs, &["/tmp/old.txt", "/tmp/new.txt"]).unwrap();
+        assert!(!vfs.exists("/tmp/old.txt"));
+        assert_eq!(vfs.read_file("/tmp/new.txt").unwrap(), "data");
+    }
+
+    #[test]
+    fn move_nonexistent_errors() {
+        let mut vfs = Vfs::new();
+        assert!(execute(&mut vfs, &["/nope", "/tmp/dst"]).is_err());
+    }
+
+    #[test]
+    fn missing_destination() {
+        let mut vfs = Vfs::new();
+        assert!(execute(&mut vfs, &["/tmp/src"]).is_err());
+    }
+}

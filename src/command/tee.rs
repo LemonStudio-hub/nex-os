@@ -39,3 +39,57 @@ pub fn execute(vfs: &mut Vfs, input: &str, args: &[&str]) -> Result<String, Stri
     // Also output to stdout
     Ok(input.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_to_single_file() {
+        let mut vfs = Vfs::new();
+        let out = execute(&mut vfs, "hello world", &["/tmp/out.txt"]).unwrap();
+        assert_eq!(out, "hello world");
+        assert_eq!(vfs.read_file("/tmp/out.txt").unwrap(), "hello world");
+    }
+
+    #[test]
+    fn write_to_multiple_files() {
+        let mut vfs = Vfs::new();
+        let out = execute(&mut vfs, "data", &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert_eq!(out, "data");
+        assert_eq!(vfs.read_file("/tmp/a.txt").unwrap(), "data");
+        assert_eq!(vfs.read_file("/tmp/b.txt").unwrap(), "data");
+    }
+
+    #[test]
+    fn append_mode() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/log.txt", "first\n").unwrap();
+        let out = execute(&mut vfs, "second\n", &["-a", "/tmp/log.txt"]).unwrap();
+        assert_eq!(out, "second\n");
+        assert_eq!(vfs.read_file("/tmp/log.txt").unwrap(), "first\nsecond\n");
+    }
+
+    #[test]
+    fn overwrite_mode() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/log.txt", "old").unwrap();
+        let out = execute(&mut vfs, "new", &["/tmp/log.txt"]).unwrap();
+        assert_eq!(out, "new");
+        assert_eq!(vfs.read_file("/tmp/log.txt").unwrap(), "new");
+    }
+
+    #[test]
+    fn missing_file_operand() {
+        let mut vfs = Vfs::new();
+        assert!(execute(&mut vfs, "data", &[]).is_err());
+    }
+
+    #[test]
+    fn empty_input() {
+        let mut vfs = Vfs::new();
+        let out = execute(&mut vfs, "", &["/tmp/out.txt"]).unwrap();
+        assert_eq!(out, "");
+        assert_eq!(vfs.read_file("/tmp/out.txt").unwrap(), "");
+    }
+}

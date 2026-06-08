@@ -23,7 +23,10 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 
         if recursive {
             // Create each component along the path
-            let components: Vec<&str> = resolved.split('/').filter(|s: &&str| !s.is_empty()).collect();
+            let components: Vec<&str> = resolved
+                .split('/')
+                .filter(|s: &&str| !s.is_empty())
+                .collect();
             let mut current = String::new();
             for component in components {
                 current.push('/');

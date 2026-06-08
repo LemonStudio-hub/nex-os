@@ -73,6 +73,12 @@ fn path_display_name(path: &str) -> &str {
 // Vfs implementation
 // ---------------------------------------------------------------------------
 
+impl Default for Vfs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Vfs {
     // ---- Construction --------------------------------------------------------
 
@@ -98,8 +104,7 @@ impl Vfs {
 
         // Create /home/user
         if let Some(FsNode::Directory(ref mut home)) = root.children.get_mut("home") {
-            home.children
-                .insert("user".to_string(), empty_dir("user"));
+            home.children.insert("user".to_string(), empty_dir("user"));
         }
 
         Vfs {
@@ -125,8 +130,8 @@ impl Vfs {
     pub fn resolve_path(&self, path: &str) -> Result<String, String> {
         // ~ expansion
         let expanded: String;
-        let working_path = if path.starts_with('~') {
-            expanded = format!("/home/user{}", &path[1..]);
+        let working_path = if let Some(rest) = path.strip_prefix('~') {
+            expanded = format!("/home/user{}", rest);
             &expanded
         } else {
             path
@@ -217,9 +222,12 @@ impl Vfs {
     /// callers (the `mkdir -p` command) are responsible for that.
     pub fn mkdir(&mut self, path: &str) -> Result<String, String> {
         let (parent_path, name) = self.split_parent_name(path)?;
-        let parent = self
-            .get_dir_mut(&parent_path)
-            .ok_or_else(|| format!("mkdir: cannot create directory '{}': No such file or directory", path_display_name(path)))?;
+        let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
+            format!(
+                "mkdir: cannot create directory '{}': No such file or directory",
+                path_display_name(path)
+            )
+        })?;
 
         if parent.children.contains_key(&name) {
             return Err(format!(
@@ -245,9 +253,12 @@ impl Vfs {
             return Ok(String::new());
         }
         let (parent_path, name) = self.split_parent_name(path)?;
-        let parent = self
-            .get_dir_mut(&parent_path)
-            .ok_or_else(|| format!("touch: cannot touch '{}': No such file or directory", path_display_name(path)))?;
+        let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
+            format!(
+                "touch: cannot touch '{}': No such file or directory",
+                path_display_name(path)
+            )
+        })?;
 
         parent.children.insert(
             name.clone(),
@@ -260,19 +271,31 @@ impl Vfs {
     }
 
     /// Remove the node at `path` (absolute). Works for both files and
-    /// directories. The caller is responsible for enforcing `-r` policy.
+    /// directories. If `recursive` is true, non-empty directories are removed
+    /// along with all their contents.
     pub fn rm(&mut self, path: &str) -> Result<String, String> {
+        self.rm_inner(path, false)
+    }
+
+    /// Like `rm` but allows removing non-empty directories recursively.
+    pub fn rm_recursive(&mut self, path: &str) -> Result<String, String> {
+        self.rm_inner(path, true)
+    }
+
+    fn rm_inner(&mut self, path: &str, recursive: bool) -> Result<String, String> {
         if path == "/" {
             return Err("rm: cannot remove '/'".to_string());
         }
         let (parent_path, name) = self.split_parent_name(path)?;
-        let parent = self
-            .get_dir_mut(&parent_path)
-            .ok_or_else(|| format!("rm: cannot remove '{}': No such file or directory", path_display_name(path)))?;
+        let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
+            format!(
+                "rm: cannot remove '{}': No such file or directory",
+                path_display_name(path)
+            )
+        })?;
 
-        // Check if directory is non-empty (caller should have checked for -r)
         if let Some(FsNode::Directory(dir)) = parent.children.get(&name) {
-            if !dir.children.is_empty() {
+            if !dir.children.is_empty() && !recursive {
                 return Err(format!(
                     "rm: cannot remove '{}': Is a directory",
                     path_display_name(path)
@@ -280,10 +303,12 @@ impl Vfs {
             }
         }
 
-        parent
-            .children
-            .remove(&name)
-            .ok_or_else(|| format!("rm: cannot remove '{}': No such file or directory", path_display_name(path)))?;
+        parent.children.remove(&name).ok_or_else(|| {
+            format!(
+                "rm: cannot remove '{}': No such file or directory",
+                path_display_name(path)
+            )
+        })?;
         Ok(String::new())
     }
 
@@ -312,9 +337,12 @@ impl Vfs {
 
         // Otherwise create it
         let (parent_path, name) = self.split_parent_name(path)?;
-        let parent = self
-            .get_dir_mut(&parent_path)
-            .ok_or_else(|| format!("write: cannot create '{}': No such file or directory", path_display_name(path)))?;
+        let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
+            format!(
+                "write: cannot create '{}': No such file or directory",
+                path_display_name(path)
+            )
+        })?;
 
         parent.children.insert(
             name.clone(),
@@ -328,9 +356,12 @@ impl Vfs {
 
     /// List the children of the directory at `path`.
     pub fn list_dir(&self, path: &str) -> Result<Vec<FsNode>, String> {
-        let dir = self
-            .get_dir(path)
-            .ok_or_else(|| format!("ls: cannot access '{}': No such file or directory", path_display_name(path)))?;
+        let dir = self.get_dir(path).ok_or_else(|| {
+            format!(
+                "ls: cannot access '{}': No such file or directory",
+                path_display_name(path)
+            )
+        })?;
         Ok(dir.children.values().cloned().collect())
     }
 
@@ -338,7 +369,12 @@ impl Vfs {
     pub fn cp(&mut self, src: &str, dst: &str) -> Result<String, String> {
         let node = self
             .get_node_at(src)
-            .ok_or_else(|| format!("cp: cannot stat '{}': No such file or directory", path_display_name(src)))?
+            .ok_or_else(|| {
+                format!(
+                    "cp: cannot stat '{}': No such file or directory",
+                    path_display_name(src)
+                )
+            })?
             .clone();
 
         // If dst is an existing directory, copy into it
@@ -355,9 +391,12 @@ impl Vfs {
 
         // Ensure parent directory exists
         let (parent_path, name) = self.split_parent_name(&actual_dst)?;
-        let parent = self
-            .get_dir_mut(&parent_path)
-            .ok_or_else(|| format!("cp: cannot create '{}': No such file or directory", path_display_name(&actual_dst)))?;
+        let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
+            format!(
+                "cp: cannot create '{}': No such file or directory",
+                path_display_name(&actual_dst)
+            )
+        })?;
 
         // Rename the top-level node if needed
         let mut new_node = node;
@@ -366,10 +405,9 @@ impl Vfs {
             FsNode::Directory(d) => d.name = name,
         }
 
-        parent.children.insert(
-            path_display_name(&actual_dst).to_string(),
-            new_node,
-        );
+        parent
+            .children
+            .insert(path_display_name(&actual_dst).to_string(), new_node);
         Ok(String::new())
     }
 
@@ -446,5 +484,292 @@ impl Vfs {
             }
         }
         None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- Construction --------------------------------------------------------
+
+    #[test]
+    fn new_creates_default_structure() {
+        let vfs = Vfs::new();
+        assert_eq!(vfs.cwd, "/");
+        assert!(vfs.is_dir("/"));
+        assert!(vfs.is_dir("/home"));
+        assert!(vfs.is_dir("/tmp"));
+        assert!(vfs.is_dir("/etc"));
+        assert!(vfs.is_dir("/var"));
+        assert!(vfs.is_dir("/home/user"));
+    }
+
+    // -- Path resolution ----------------------------------------------------
+
+    #[test]
+    fn resolve_absolute_path() {
+        let vfs = Vfs::new();
+        assert_eq!(vfs.resolve_path("/").unwrap(), "/");
+        assert_eq!(vfs.resolve_path("/home").unwrap(), "/home");
+        assert_eq!(vfs.resolve_path("/home/user").unwrap(), "/home/user");
+    }
+
+    #[test]
+    fn resolve_relative_path() {
+        let mut vfs = Vfs::new();
+        vfs.cwd = "/home/user".to_string();
+        assert_eq!(
+            vfs.resolve_path("Documents").unwrap(),
+            "/home/user/Documents"
+        );
+        assert_eq!(vfs.resolve_path("a/b").unwrap(), "/home/user/a/b");
+    }
+
+    #[test]
+    fn resolve_dot_and_dotdot() {
+        let mut vfs = Vfs::new();
+        vfs.cwd = "/home/user".to_string();
+        assert_eq!(vfs.resolve_path(".").unwrap(), "/home/user");
+        assert_eq!(vfs.resolve_path("..").unwrap(), "/home");
+        assert_eq!(vfs.resolve_path("../..").unwrap(), "/");
+        assert_eq!(vfs.resolve_path("./foo/../bar").unwrap(), "/home/user/bar");
+    }
+
+    #[test]
+    fn resolve_tilde() {
+        let vfs = Vfs::new();
+        assert_eq!(vfs.resolve_path("~").unwrap(), "/home/user");
+        assert_eq!(
+            vfs.resolve_path("~/Documents").unwrap(),
+            "/home/user/Documents"
+        );
+    }
+
+    #[test]
+    fn resolve_dotdot_from_root_stays_at_root() {
+        let vfs = Vfs::new();
+        assert_eq!(vfs.resolve_path("/..").unwrap(), "/");
+    }
+
+    // -- exists / is_dir ----------------------------------------------------
+
+    #[test]
+    fn exists_returns_true_for_root_and_dirs() {
+        let vfs = Vfs::new();
+        assert!(vfs.exists("/"));
+        assert!(vfs.exists("/home"));
+        assert!(!vfs.exists("/nonexistent"));
+    }
+
+    #[test]
+    fn is_dir_distinguishes_files_and_dirs() {
+        let mut vfs = Vfs::new();
+        assert!(vfs.is_dir("/home"));
+        vfs.touch("/home/user/test.txt").unwrap();
+        assert!(!vfs.is_dir("/home/user/test.txt"));
+    }
+
+    // -- mkdir ---------------------------------------------------------------
+
+    #[test]
+    fn mkdir_creates_directory() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("/home/user/newdir").unwrap();
+        assert!(vfs.is_dir("/home/user/newdir"));
+    }
+
+    #[test]
+    fn mkdir_fails_if_already_exists() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("/home/user/dir").unwrap();
+        assert!(vfs.mkdir("/home/user/dir").is_err());
+    }
+
+    #[test]
+    fn mkdir_fails_if_parent_missing() {
+        let mut vfs = Vfs::new();
+        assert!(vfs.mkdir("/nonexistent/dir").is_err());
+    }
+
+    // -- touch ---------------------------------------------------------------
+
+    #[test]
+    fn touch_creates_empty_file() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/file.txt").unwrap();
+        assert_eq!(vfs.read_file("/home/user/file.txt").unwrap(), "");
+    }
+
+    #[test]
+    fn touch_noop_on_existing_file() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/file.txt", "data").unwrap();
+        vfs.touch("/home/user/file.txt").unwrap();
+        assert_eq!(vfs.read_file("/home/user/file.txt").unwrap(), "data");
+    }
+
+    // -- write_file / read_file ---------------------------------------------
+
+    #[test]
+    fn write_and_read_file() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/hello.txt", "Hello, World!")
+            .unwrap();
+        assert_eq!(
+            vfs.read_file("/home/user/hello.txt").unwrap(),
+            "Hello, World!"
+        );
+    }
+
+    #[test]
+    fn write_file_overwrites() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "first").unwrap();
+        vfs.write_file("/home/user/f.txt", "second").unwrap();
+        assert_eq!(vfs.read_file("/home/user/f.txt").unwrap(), "second");
+    }
+
+    #[test]
+    fn read_file_returns_error_for_directory() {
+        let vfs = Vfs::new();
+        assert!(vfs.read_file("/home").is_err());
+    }
+
+    #[test]
+    fn read_file_returns_error_for_nonexistent() {
+        let vfs = Vfs::new();
+        assert!(vfs.read_file("/nonexistent.txt").is_err());
+    }
+
+    // -- rm ------------------------------------------------------------------
+
+    #[test]
+    fn rm_removes_file() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/f.txt").unwrap();
+        vfs.rm("/home/user/f.txt").unwrap();
+        assert!(!vfs.exists("/home/user/f.txt"));
+    }
+
+    #[test]
+    fn rm_fails_for_non_empty_dir() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/f.txt").unwrap();
+        assert!(vfs.rm("/home/user").is_err());
+    }
+
+    #[test]
+    fn rm_fails_for_root() {
+        let mut vfs = Vfs::new();
+        assert!(vfs.rm("/").is_err());
+    }
+
+    #[test]
+    fn rm_fails_for_nonexistent() {
+        let mut vfs = Vfs::new();
+        assert!(vfs.rm("/nope").is_err());
+    }
+
+    // -- list_dir -----------------------------------------------------------
+
+    #[test]
+    fn list_dir_returns_children() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/a.txt").unwrap();
+        vfs.touch("/home/user/b.txt").unwrap();
+        let entries = vfs.list_dir("/home/user").unwrap();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn list_dir_root() {
+        let vfs = Vfs::new();
+        let entries = vfs.list_dir("/").unwrap();
+        assert!(entries.len() >= 4); // home, tmp, etc, var
+    }
+
+    // -- cp / mv ------------------------------------------------------------
+
+    #[test]
+    fn cp_file() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/src.txt", "content").unwrap();
+        vfs.cp("/home/user/src.txt", "/tmp/dst.txt").unwrap();
+        assert_eq!(vfs.read_file("/tmp/dst.txt").unwrap(), "content");
+        assert_eq!(vfs.read_file("/home/user/src.txt").unwrap(), "content"); // original intact
+    }
+
+    #[test]
+    fn mv_file() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/src.txt", "content").unwrap();
+        vfs.mv("/home/user/src.txt", "/tmp/moved.txt").unwrap();
+        assert_eq!(vfs.read_file("/tmp/moved.txt").unwrap(), "content");
+        assert!(!vfs.exists("/home/user/src.txt"));
+    }
+
+    #[test]
+    fn cp_into_existing_dir() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "data").unwrap();
+        vfs.mkdir("/tmp/dest").unwrap();
+        vfs.cp("/home/user/f.txt", "/tmp/dest").unwrap();
+        assert_eq!(vfs.read_file("/tmp/dest/f.txt").unwrap(), "data");
+    }
+
+    // -- JSON roundtrip -----------------------------------------------------
+
+    #[test]
+    fn json_roundtrip_preserves_data() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/test.txt", "hello").unwrap();
+        vfs.mkdir("/home/user/subdir").unwrap();
+        vfs.write_file("/home/user/subdir/nested.txt", "world")
+            .unwrap();
+        vfs.cwd = "/home/user".to_string();
+
+        let json = vfs.to_json();
+        let restored = Vfs::from_json(&json).unwrap();
+
+        assert_eq!(restored.cwd, "/home/user");
+        assert_eq!(restored.read_file("/home/user/test.txt").unwrap(), "hello");
+        assert_eq!(
+            restored.read_file("/home/user/subdir/nested.txt").unwrap(),
+            "world"
+        );
+    }
+
+    #[test]
+    fn from_json_rejects_invalid() {
+        assert!(Vfs::from_json("not json").is_err());
+    }
+
+    // -- Nested operations --------------------------------------------------
+
+    #[test]
+    fn deeply_nested_dir_and_file() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("/home/user/a").unwrap();
+        vfs.mkdir("/home/user/a/b").unwrap();
+        vfs.mkdir("/home/user/a/b/c").unwrap();
+        vfs.write_file("/home/user/a/b/c/deep.txt", "deep content")
+            .unwrap();
+        assert_eq!(
+            vfs.read_file("/home/user/a/b/c/deep.txt").unwrap(),
+            "deep content"
+        );
+    }
+
+    #[test]
+    fn resolve_path_through_existing_file() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/f.txt").unwrap();
+        // Trying to resolve a path that goes through a file should fail
+        // at the is_dir / get_dir level, not resolve_path (which is pure string manipulation)
+        assert!(!vfs.is_dir("/home/user/f.txt/sub"));
     }
 }

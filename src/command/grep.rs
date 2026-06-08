@@ -67,3 +67,80 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vfs_with_lines(lines: &[&str]) -> Vfs {
+        let mut vfs = Vfs::new();
+        let content = lines.join("\n");
+        vfs.write_file("/tmp/f.txt", &content).unwrap();
+        vfs
+    }
+
+    #[test]
+    fn basic_match() {
+        let vfs = vfs_with_lines(&["hello", "world", "hello again"]);
+        let out = execute(&vfs, &["hello", "/tmp/f.txt"]).unwrap();
+        assert_eq!(out.lines().count(), 2);
+    }
+
+    #[test]
+    fn no_match_returns_empty() {
+        let vfs = vfs_with_lines(&["hello", "world"]);
+        let out = execute(&vfs, &["xyz", "/tmp/f.txt"]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn case_insensitive() {
+        let vfs = vfs_with_lines(&["Hello", "WORLD", "hello"]);
+        let out = execute(&vfs, &["-i", "hello", "/tmp/f.txt"]).unwrap();
+        assert_eq!(out.lines().count(), 2);
+    }
+
+    #[test]
+    fn line_numbers() {
+        let vfs = vfs_with_lines(&["aaa", "bbb", "aaa"]);
+        let out = execute(&vfs, &["-n", "aaa", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("1:"));
+        assert!(out.contains("3:"));
+    }
+
+    #[test]
+    fn combined_in_flags() {
+        let vfs = vfs_with_lines(&["Hello", "world"]);
+        let out = execute(&vfs, &["-in", "hello", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("1:"));
+    }
+
+    #[test]
+    fn combined_ni_flags() {
+        let vfs = vfs_with_lines(&["Hello", "world"]);
+        let out = execute(&vfs, &["-ni", "hello", "/tmp/f.txt"]).unwrap();
+        assert!(out.contains("1:"));
+    }
+
+    #[test]
+    fn multiple_files_shows_filename() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "hello").unwrap();
+        vfs.write_file("/tmp/b.txt", "hello").unwrap();
+        let out = execute(&vfs, &["hello", "/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert!(out.contains("/tmp/a.txt:"));
+        assert!(out.contains("/tmp/b.txt:"));
+    }
+
+    #[test]
+    fn missing_pattern() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &[]).is_err());
+    }
+
+    #[test]
+    fn missing_file() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["pattern"]).is_err());
+    }
+}

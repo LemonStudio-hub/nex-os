@@ -22,3 +22,43 @@ pub fn execute(args: &[&str]) -> Result<String, String> {
         None => Ok(".\n".to_string()), // No directory component
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_path() {
+        let out = execute(&["/home/user/file.txt"]).unwrap();
+        assert_eq!(out.trim(), "/home/user");
+    }
+
+    #[test]
+    fn no_slash_returns_dot() {
+        let out = execute(&["file.txt"]).unwrap();
+        assert_eq!(out.trim(), ".");
+    }
+
+    #[test]
+    fn root_file() {
+        let out = execute(&["/file.txt"]).unwrap();
+        assert_eq!(out.trim(), "/");
+    }
+
+    #[test]
+    fn trailing_slashes() {
+        let out = execute(&["/home/user/dir/"]).unwrap();
+        assert_eq!(out.trim(), "/home/user");
+    }
+
+    #[test]
+    fn deeply_nested() {
+        let out = execute(&["/a/b/c/d/file"]).unwrap();
+        assert_eq!(out.trim(), "/a/b/c/d");
+    }
+
+    #[test]
+    fn missing_operand() {
+        assert!(execute(&[]).is_err());
+    }
+}

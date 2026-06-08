@@ -30,3 +30,44 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_single_file() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/f.txt", "hello").unwrap();
+        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        assert!(out.contains("hello"));
+    }
+
+    #[test]
+    fn read_multiple_files() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/a.txt", "AAA").unwrap();
+        vfs.write_file("/tmp/b.txt", "BBB").unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        assert!(out.contains("AAA"));
+        assert!(out.contains("BBB"));
+    }
+
+    #[test]
+    fn nonexistent_file_errors() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["/nope"]).is_err());
+    }
+
+    #[test]
+    fn directory_errors() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &["/home"]).is_err());
+    }
+
+    #[test]
+    fn missing_operand() {
+        let vfs = Vfs::new();
+        assert!(execute(&vfs, &[]).is_err());
+    }
+}

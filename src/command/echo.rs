@@ -24,3 +24,47 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(format!("{}\n", args.join(" ")))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_args_prints_empty_line() {
+        let mut vfs = Vfs::new();
+        let out = execute(&mut vfs, &[]).unwrap();
+        assert_eq!(out, "\n");
+    }
+
+    #[test]
+    fn single_word() {
+        let mut vfs = Vfs::new();
+        let out = execute(&mut vfs, &["hello"]).unwrap();
+        assert_eq!(out, "hello\n");
+    }
+
+    #[test]
+    fn multiple_words() {
+        let mut vfs = Vfs::new();
+        let out = execute(&mut vfs, &["hello", "world"]).unwrap();
+        assert_eq!(out, "hello world\n");
+    }
+
+    #[test]
+    fn redirect_overwrite() {
+        let mut vfs = Vfs::new();
+        execute(&mut vfs, &["first", ">", "/tmp/out.txt"]).unwrap();
+        execute(&mut vfs, &["second", ">", "/tmp/out.txt"]).unwrap();
+        assert_eq!(vfs.read_file("/tmp/out.txt").unwrap(), "second\n");
+    }
+
+    #[test]
+    fn redirect_append() {
+        let mut vfs = Vfs::new();
+        execute(&mut vfs, &["first", ">", "/tmp/out.txt"]).unwrap();
+        execute(&mut vfs, &["second", ">>", "/tmp/out.txt"]).unwrap();
+        let content = vfs.read_file("/tmp/out.txt").unwrap();
+        assert!(content.contains("first"));
+        assert!(content.contains("second"));
+    }
+}

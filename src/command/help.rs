@@ -18,16 +18,25 @@ pub fn execute() -> String {
         ("tree", "Display directory tree structure"),
         // File content
         ("cat", "Display file contents"),
-        ("echo", "Display a line of text (supports > and >> redirection)"),
+        (
+            "echo",
+            "Display a line of text (supports > and >> redirection)",
+        ),
         ("head", "Display first N lines of a file (-n COUNT)"),
         ("tail", "Display last N lines of a file (-n COUNT)"),
         // Text processing
-        ("grep", "Search for patterns in files (-i case-insensitive, -n line numbers)"),
+        (
+            "grep",
+            "Search for patterns in files (-i case-insensitive, -n line numbers)",
+        ),
         ("sort", "Sort lines of a file (-r for reverse)"),
         ("uniq", "Filter adjacent duplicate lines (-c for counts)"),
         ("wc", "Count lines, words, and characters (-l -w -c)"),
         ("cut", "Extract fields from each line (-f FIELDS -d DELIM)"),
-        ("tr", "Translate characters from stdin (echo text | tr a-z A-Z)"),
+        (
+            "tr",
+            "Translate characters from stdin (echo text | tr a-z A-Z)",
+        ),
         ("tee", "Write stdin to stdout and files (-a for append)"),
         // Comparison
         ("diff", "Compare two files line by line"),

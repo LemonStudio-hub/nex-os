@@ -1,15 +1,15 @@
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
-mod command;
-mod shell;
-mod vfs;
+pub mod command;
+pub mod shell;
+pub mod vfs;
 
 use shell::Shell;
 use vfs::Vfs;
 
 thread_local! {
-    static SHELL: RefCell<Option<Shell>> = RefCell::new(None);
+    static SHELL: RefCell<Option<Shell>> = const { RefCell::new(None) };
 }
 
 /// Initialize the VFS and shell. If `state_json` is non-empty, attempts to

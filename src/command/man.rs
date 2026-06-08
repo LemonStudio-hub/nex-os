@@ -92,3 +92,44 @@ fn get_manual(cmd: &str) -> String {
         _ => format!("man: no manual entry for '{}'", cmd),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_command_has_synopsis() {
+        let out = execute(&["ls"]).unwrap();
+        assert!(out.contains("LS(1)"));
+        assert!(out.contains("SYNOPSIS"));
+    }
+
+    #[test]
+    fn unknown_command() {
+        let out = execute(&["nonexistent"]).unwrap();
+        assert!(out.contains("no manual entry"));
+    }
+
+    #[test]
+    fn missing_args() {
+        assert!(execute(&[]).is_err());
+    }
+
+    #[test]
+    fn all_commands_have_pages() {
+        let commands = [
+            "ls", "cd", "pwd", "mkdir", "touch", "rm", "cat", "echo", "cp", "mv", "tree", "head",
+            "tail", "grep", "find", "sort", "uniq", "wc", "diff", "du", "tr", "cut", "tee", "ln",
+            "chmod", "chown", "whoami", "hostname", "date", "history", "clear", "help", "man",
+            "basename", "dirname",
+        ];
+        for cmd in &commands {
+            let out = execute(&[cmd]).unwrap();
+            assert!(
+                !out.contains("no manual entry"),
+                "Missing man page for: {}",
+                cmd
+            );
+        }
+    }
+}

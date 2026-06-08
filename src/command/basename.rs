@@ -30,3 +30,50 @@ pub fn execute(args: &[&str]) -> Result<String, String> {
 
     Ok(format!("{}\n", result))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_path() {
+        let out = execute(&["/home/user/file.txt"]).unwrap();
+        assert_eq!(out.trim(), "file.txt");
+    }
+
+    #[test]
+    fn with_suffix() {
+        let out = execute(&["/home/user/file.txt", ".txt"]).unwrap();
+        assert_eq!(out.trim(), "file");
+    }
+
+    #[test]
+    fn trailing_slashes() {
+        let out = execute(&["/home/user/dir/"]).unwrap();
+        assert_eq!(out.trim(), "dir");
+    }
+
+    #[test]
+    fn single_component() {
+        let out = execute(&["file.txt"]).unwrap();
+        assert_eq!(out.trim(), "file.txt");
+    }
+
+    #[test]
+    fn root_path() {
+        let out = execute(&["/"]).unwrap();
+        // root has no component name
+        assert!(!out.is_empty());
+    }
+
+    #[test]
+    fn suffix_that_doesnt_match() {
+        let out = execute(&["/path/file.txt", ".log"]).unwrap();
+        assert_eq!(out.trim(), "file.txt");
+    }
+
+    #[test]
+    fn missing_operand() {
+        assert!(execute(&[]).is_err());
+    }
+}

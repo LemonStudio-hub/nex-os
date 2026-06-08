@@ -65,3 +65,69 @@ fn parse_char_set(s: &str) -> Vec<char> {
     }
     chars
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_translation() {
+        let out = execute("hello", &["h", "H"]).unwrap();
+        assert_eq!(out, "Hello");
+    }
+
+    #[test]
+    fn translate_multiple_chars() {
+        let out = execute("abc", &["a", "x"]).unwrap();
+        assert_eq!(out, "xbc");
+    }
+
+    #[test]
+    fn translate_with_no_match() {
+        let out = execute("hello", &["z", "X"]).unwrap();
+        assert_eq!(out, "hello");
+    }
+
+    #[test]
+    fn escape_newline_in_set() {
+        let out = execute("a\nb", &["\\n", "X"]).unwrap();
+        assert_eq!(out, "aXb");
+    }
+
+    #[test]
+    fn escape_tab_in_set() {
+        let out = execute("a\tb", &["\\t", " "]).unwrap();
+        assert_eq!(out, "a b");
+    }
+
+    #[test]
+    fn escape_backslash_in_set() {
+        let out = execute("a\\b", &["\\\\", "/"]).unwrap();
+        assert_eq!(out, "a/b");
+    }
+
+    #[test]
+    fn set1_longer_than_set2_maps_to_last() {
+        // "abcde" → set1=[a,b,c,d,e], set2=[X,Y]
+        // a→X, b→Y, c→Y (last of set2), d→Y, e→Y
+        let out = execute("abcde", &["abcde", "XY"]).unwrap();
+        assert_eq!(out, "XYYYY");
+    }
+
+    #[test]
+    fn missing_args_returns_error() {
+        assert!(execute("hello", &[]).is_err());
+        assert!(execute("hello", &["a"]).is_err());
+    }
+
+    #[test]
+    fn empty_set1_returns_error() {
+        assert!(execute("hello", &["", "b"]).is_err());
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        let out = execute("", &["a", "b"]).unwrap();
+        assert_eq!(out, "");
+    }
+}

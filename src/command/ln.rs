@@ -51,3 +51,38 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(String::new())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn symbolic_link() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/target.txt", "content").unwrap();
+        execute(&mut vfs, &["-s", "/tmp/target.txt", "/tmp/link.txt"]).unwrap();
+        let out = vfs.read_file("/tmp/link.txt").unwrap();
+        assert!(out.contains("-> /tmp/target.txt"));
+    }
+
+    #[test]
+    fn hard_link_copies_content() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/tmp/src.txt", "data").unwrap();
+        execute(&mut vfs, &["/tmp/src.txt", "/tmp/copy.txt"]).unwrap();
+        assert_eq!(vfs.read_file("/tmp/copy.txt").unwrap(), "data");
+    }
+
+    #[test]
+    fn missing_operand() {
+        let mut vfs = Vfs::new();
+        assert!(execute(&mut vfs, &[]).is_err());
+        assert!(execute(&mut vfs, &["/tmp/a"]).is_err());
+    }
+
+    #[test]
+    fn nonexistent_target() {
+        let mut vfs = Vfs::new();
+        assert!(execute(&mut vfs, &["/nope", "/tmp/link"]).is_err());
+    }
+}
