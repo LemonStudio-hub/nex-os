@@ -1,8 +1,8 @@
 //! Integration tests for the Shell: command dispatch, piping, redirection,
 //! chaining, and error handling.
 
-use web_code::shell::Shell;
-use web_code::vfs::Vfs;
+use nexos::shell::Shell;
+use nexos::vfs::Vfs;
 
 /// Helper: create a fresh Shell with default VFS
 fn new_shell() -> Shell {
@@ -373,7 +373,7 @@ fn test_whoami() {
 fn test_hostname() {
     let mut shell = new_shell();
     let out = shell.execute("hostname");
-    assert_eq!(out.trim(), "web-code");
+    assert_eq!(out.trim(), "nexos");
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn test_env_shows_defaults() {
     let mut shell = new_shell();
     let out = shell.execute("env");
     assert!(out.contains("USER=user"));
-    assert!(out.contains("HOSTNAME=web-code"));
+    assert!(out.contains("HOSTNAME=nexos"));
 }
 
 #[test]
@@ -681,7 +681,7 @@ fn test_prompt_contains_user_and_host() {
     let shell = new_shell();
     let prompt = shell.get_prompt();
     assert!(prompt.contains("user"));
-    assert!(prompt.contains("web-code"));
+    assert!(prompt.contains("nexos"));
     assert!(prompt.contains("/"));
 }
 

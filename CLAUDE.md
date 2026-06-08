@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-web-code is a browser-based Linux terminal environment. The core logic (VFS, command parsing/execution) is written in Rust compiled to WebAssembly. The frontend is TypeScript + xterm.js. Persistence uses the browser's Origin Private File System (OPFS). There is no backend — everything runs client-side.
+NexOS is a browser-based Linux terminal environment. The core logic (VFS, command parsing/execution) is written in Rust compiled to WebAssembly. The frontend is TypeScript + xterm.js. Persistence uses the browser's Origin Private File System (OPFS). There is no backend — everything runs client-side.
 
 ## Build Commands
 
 ### Full WASM build (Rust → WASM → JS bindings)
 ```bash
 cargo build --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/web_code.wasm
+wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/nexos.wasm
 ```
 
 ### Frontend dev server
@@ -37,9 +37,9 @@ cargo test <test_name>
 ### Deploy (Cloudflare Pages)
 ```bash
 cargo build --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/web_code.wasm
+wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/nexos.wasm
 cd web && npm run build && cd ..
-npx wrangler pages deploy web/dist/ --project-name=web-code
+npx wrangler pages deploy web/dist/ --project-name=nexos
 ```
 
 ## Architecture

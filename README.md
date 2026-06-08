@@ -1,6 +1,6 @@
-# web-code
+# NexOS
 
-A browser-based Linux-like terminal environment powered by Rust WebAssembly. web-code creates a persistent virtual filesystem stored in the browser's Origin Private File System (OPFS), rendered through a fully interactive terminal built with xterm.js. No backend server required — everything runs client-side.
+A browser-based Linux-like terminal environment powered by Rust WebAssembly. NexOS creates a persistent virtual filesystem stored in the browser's Origin Private File System (OPFS), rendered through a fully interactive terminal built with xterm.js. No backend server required — everything runs client-side.
 
 ## Features
 
@@ -110,7 +110,7 @@ A browser-based Linux-like terminal environment powered by Rust WebAssembly. web
 
 ```bash
 git clone <repository-url>
-cd web-code
+cd nexos
 ```
 
 ### 2. Build the WASM Module
@@ -120,7 +120,7 @@ cd web-code
 cargo build --target wasm32-unknown-unknown --release
 
 # Generate JavaScript bindings
-wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/web_code.wasm
+wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/nexos.wasm
 ```
 
 ### 3. Install Frontend Dependencies
@@ -189,10 +189,10 @@ echo Updated >> greeting.txt
 
 ### First-Time Visit
 
-When you open web-code for the first time, you will be prompted to create an account:
+When you open NexOS for the first time, you will be prompted to create an account:
 
 ```
-web-code — first-time setup
+NexOS — first-time setup
 Create your account to get started.
 
 Username: alice
@@ -206,7 +206,7 @@ Account created for alice
 On subsequent visits, only the password is required:
 
 ```
-web-code — login required
+NexOS — login required
 
 Password: ********
 Welcome back, alice!
@@ -222,7 +222,7 @@ Welcome back, alice!
 ## Project Structure
 
 ```
-web-code/
+nexos/
 ├── Cargo.toml                          # Rust project configuration
 ├── rust-toolchain.toml                 # Rust toolchain (stable + wasm32 target)
 ├── README.md                           # This file
@@ -245,10 +245,10 @@ web-code/
 │       ├── tree.rs                     # tree command
 │       └── help.rs                     # help command
 ├── pkg/                                # wasm-bindgen output (generated)
-│   ├── web_code.js                     # JavaScript bindings
-│   ├── web_code.d.ts                   # TypeScript declarations
-│   ├── web_code_bg.wasm               # Compiled WebAssembly binary (~160 KB)
-│   └── web_code_bg.wasm.d.ts          # WASM TypeScript declarations
+│   ├── nexos.js                     # JavaScript bindings
+│   ├── nexos.d.ts                   # TypeScript declarations
+│   ├── nexos_bg.wasm               # Compiled WebAssembly binary (~160 KB)
+│   └── nexos_bg.wasm.d.ts          # WASM TypeScript declarations
 └── web/                                # Frontend application
     ├── package.json                    # npm dependencies and scripts
     ├── tsconfig.json                   # TypeScript configuration
@@ -304,13 +304,13 @@ The project is configured for deployment to Cloudflare Pages using the Wrangler 
 ```bash
 # 1. Build WASM
 cargo build --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/web_code.wasm
+wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/nexos.wasm
 
 # 2. Build frontend
 cd web && npm run build && cd ..
 
 # 3. Deploy to Cloudflare Pages
-npx wrangler pages deploy web/dist/ --project-name=web-code
+npx wrangler pages deploy web/dist/ --project-name=nexos
 ```
 
 #### Prerequisites for Deployment
@@ -320,7 +320,7 @@ npx wrangler pages deploy web/dist/ --project-name=web-code
 
 #### Live URL
 
-The production deployment is available at: **https://851be110.web-code-9x1.pages.dev**
+The production deployment is available at: **https://nexos.pages.dev**
 
 ### Other Static Hosts
 
@@ -333,7 +333,7 @@ The production build in `web/dist/` is a standard static site (HTML + JS + CSS +
 
 ## Browser Compatibility
 
-web-code requires a modern browser with support for:
+NexOS requires a modern browser with support for:
 
 - **WebAssembly** (all major browsers since 2017)
 - **OPFS** (`navigator.storage.getDirectory()`): Chrome 86+, Edge 86+, Firefox 111+, Safari 15.2+

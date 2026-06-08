@@ -1,5 +1,5 @@
 /**
- * Authentication module for web-code.
+ * Authentication module for NexOS.
  *
  * Handles first-time user setup (username + password) and returning-user
  * login (password only). Credentials are stored in OPFS with SHA-256
@@ -43,7 +43,7 @@ async function saveUserConfig(config: UserConfig): Promise<void> {
     await writable.write(JSON.stringify(config));
     await writable.close();
   } catch (e) {
-    console.warn('[web-code] Failed to save user config:', e);
+    console.warn('[NexOS] Failed to save user config:', e);
   }
 }
 
@@ -114,13 +114,13 @@ export async function runAuth(terminal: Terminal): Promise<AuthResult> {
     if (config) {
       // Returning user – ask for password only
       terminal.writeln('');
-      terminal.writeln('\x1b[1;36mweb-code\x1b[0m — login required');
+      terminal.writeln('\x1b[1;36mNexOS\x1b[0m — login required');
       writePrompt(terminal, 'Password:');
       mode = 'LOGIN_PASSWORD';
     } else {
       // First-time setup
       terminal.writeln('');
-      terminal.writeln('\x1b[1;36mweb-code\x1b[0m — first-time setup');
+      terminal.writeln('\x1b[1;36mNexOS\x1b[0m — first-time setup');
       terminal.writeln('Create your account to get started.');
       writePrompt(terminal, 'Username:');
       mode = 'SETUP_USERNAME';

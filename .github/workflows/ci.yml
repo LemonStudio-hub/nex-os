@@ -1,4 +1,4 @@
-# CI/CD Pipeline for web-code
+# CI/CD Pipeline for NexOS
 #
 # Runs on every push and pull request to main:
 # 1. Rust lint (clippy + rustfmt), tests (unit + integration), WASM build
@@ -64,7 +64,7 @@ jobs:
         run: |
           wasm-bindgen --target web \
             --out-dir pkg \
-            target/wasm32-unknown-unknown/release/web_code.wasm
+            target/wasm32-unknown-unknown/release/nexos.wasm
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4
@@ -154,7 +154,7 @@ jobs:
         run: |
           wasm-bindgen --target web \
             --out-dir pkg \
-            target/wasm32-unknown-unknown/release/web_code.wasm
+            target/wasm32-unknown-unknown/release/nexos.wasm
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -176,4 +176,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy web/dist/ --project-name=web-code --commit-dirty=true
+          command: pages deploy web/dist/ --project-name=nexos --commit-dirty=true

@@ -17,14 +17,14 @@ impl Shell {
     /// Create a new shell with default user and hostname
     pub fn new(vfs: Vfs) -> Self {
         let username = "user".to_string();
-        let hostname = "web-code".to_string();
+        let hostname = "nexos".to_string();
 
         // Populate default environment variables
         let mut env_vars = HashMap::new();
         env_vars.insert("USER".to_string(), username.clone());
         env_vars.insert("HOSTNAME".to_string(), hostname.clone());
         env_vars.insert("HOME".to_string(), "/home/user".to_string());
-        env_vars.insert("SHELL".to_string(), "/bin/web-sh".to_string());
+        env_vars.insert("SHELL".to_string(), "/bin/nexsh".to_string());
         env_vars.insert("PATH".to_string(), "/usr/bin:/bin".to_string());
         env_vars.insert("PWD".to_string(), "/".to_string());
         env_vars.insert("TERM".to_string(), "xterm-256color".to_string());

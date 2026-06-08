@@ -29,7 +29,7 @@ async function saveToOPFS(data: string): Promise<void> {
     await writable.write(data);
     await writable.close();
   } catch (e) {
-    console.warn('[web-code] OPFS save failed:', e);
+    console.warn('[NexOS] OPFS save failed:', e);
   }
 }
 
@@ -74,9 +74,9 @@ async function main() {
   resizeObserver.observe(container);
 
   // Load WASM module
-  let wasm: typeof import('../pkg/web_code') | null = null;
+  let wasm: typeof import('../pkg/nexos') | null = null;
   try {
-    wasm = await import('../pkg/web_code');
+    wasm = await import('../pkg/nexos');
     await wasm.default();
   } catch (e) {
     loadingEl.textContent = 'Failed to load WASM module.';
@@ -97,9 +97,9 @@ async function main() {
   const restored = wasm.init_with_username(savedState, username);
 
   if (restored) {
-    terminal.writeln('\x1b[36m[web-code] VFS restored from OPFS\x1b[0m');
+    terminal.writeln('\x1b[36m[NexOS] VFS restored from OPFS\x1b[0m');
   } else {
-    terminal.writeln('\x1b[36m[web-code] Fresh VFS initialized\x1b[0m');
+    terminal.writeln('\x1b[36m[NexOS] Fresh VFS initialized\x1b[0m');
   }
 
   // Show prompt
