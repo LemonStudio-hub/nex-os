@@ -56,7 +56,9 @@ jobs:
         run: cargo build --target wasm32-unknown-unknown --release
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.100
+        run: |
+          VERSION=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep 'version =' | head -1 | sed 's/.*"\(.*\)"/\1/')
+          cargo install wasm-bindgen-cli --version "$VERSION"
 
       - name: Generate JS bindings
         run: |
@@ -144,7 +146,9 @@ jobs:
         run: cargo build --target wasm32-unknown-unknown --release
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.100
+        run: |
+          VERSION=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep 'version =' | head -1 | sed 's/.*"\(.*\)"/\1/')
+          cargo install wasm-bindgen-cli --version "$VERSION"
 
       - name: Generate JS bindings
         run: |
