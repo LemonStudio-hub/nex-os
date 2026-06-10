@@ -62,6 +62,16 @@ fn is_valid_mode(mode: &str) -> bool {
     false
 }
 
+pub struct ChmodCommand;
+
+impl super::Command for ChmodCommand {
+    fn name(&self) -> &'static str { "chmod" }
+    fn description(&self) -> &'static str { "Change file permissions (octal or symbolic)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -46,6 +46,17 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     Ok(format!("{}\n", lines.join("\n")))
 }
 
+pub struct TailCommand;
+
+impl super::Command for TailCommand {
+    fn name(&self) -> &'static str { "tail" }
+    fn description(&self) -> &'static str { "Display last N lines of a file (-n COUNT)" }
+    fn accepts_stdin(&self) -> bool { true }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

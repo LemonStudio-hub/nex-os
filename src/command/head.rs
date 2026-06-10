@@ -41,6 +41,17 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     Ok(format!("{}\n", lines.join("\n")))
 }
 
+pub struct HeadCommand;
+
+impl super::Command for HeadCommand {
+    fn name(&self) -> &'static str { "head" }
+    fn description(&self) -> &'static str { "Display first N lines of a file (-n COUNT)" }
+    fn accepts_stdin(&self) -> bool { true }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

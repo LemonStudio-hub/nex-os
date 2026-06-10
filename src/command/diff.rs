@@ -104,6 +104,16 @@ fn compute_diff(a: &[&str], b: &[&str], name_a: &str, name_b: &str) -> Vec<Strin
     output
 }
 
+pub struct DiffCommand;
+
+impl super::Command for DiffCommand {
+    fn name(&self) -> &'static str { "diff" }
+    fn description(&self) -> &'static str { "Compare two files line by line" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

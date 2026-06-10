@@ -14,3 +14,13 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(String::new())
 }
+
+pub struct TouchCommand;
+
+impl super::Command for TouchCommand {
+    fn name(&self) -> &'static str { "touch" }
+    fn description(&self) -> &'static str { "Create empty files" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}

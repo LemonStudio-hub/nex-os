@@ -118,3 +118,13 @@ fn format_size(bytes: usize, human: bool) -> String {
         format!("{}K", kb)
     }
 }
+
+pub struct DuCommand;
+
+impl super::Command for DuCommand {
+    fn name(&self) -> &'static str { "du" }
+    fn description(&self) -> &'static str { "Estimate disk usage (-h human-readable, -s summary)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}

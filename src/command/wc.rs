@@ -83,6 +83,17 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     Ok(output)
 }
 
+pub struct WcCommand;
+
+impl super::Command for WcCommand {
+    fn name(&self) -> &'static str { "wc" }
+    fn description(&self) -> &'static str { "Count lines, words, and characters (-l -w -c)" }
+    fn accepts_stdin(&self) -> bool { true }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -66,6 +66,16 @@ fn parse_char_set(s: &str) -> Vec<char> {
     chars
 }
 
+pub struct TrCommand;
+
+impl super::Command for TrCommand {
+    fn name(&self) -> &'static str { "tr" }
+    fn description(&self) -> &'static str { "Translate characters from stdin (echo text | tr a-z A-Z)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.stdin, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

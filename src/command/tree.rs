@@ -112,3 +112,13 @@ fn build_tree(
         }
     }
 }
+
+pub struct TreeCommand;
+
+impl super::Command for TreeCommand {
+    fn name(&self) -> &'static str { "tree" }
+    fn description(&self) -> &'static str { "Display directory tree structure" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}

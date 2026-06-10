@@ -23,6 +23,16 @@ pub fn execute(args: &[&str]) -> Result<String, String> {
     }
 }
 
+pub struct DirnameCommand;
+
+impl super::Command for DirnameCommand {
+    fn name(&self) -> &'static str { "dirname" }
+    fn description(&self) -> &'static str { "Strip filename from path" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

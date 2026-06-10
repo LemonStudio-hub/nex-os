@@ -68,6 +68,16 @@ fn collect_matches(vfs: &Vfs, dir_path: &str, pattern: &str, results: &mut Vec<S
     }
 }
 
+pub struct FindCommand;
+
+impl super::Command for FindCommand {
+    fn name(&self) -> &'static str { "find" }
+    fn description(&self) -> &'static str { "Find files by name (find [path] -name PATTERN)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

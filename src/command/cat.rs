@@ -31,6 +31,17 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     Ok(output)
 }
 
+pub struct CatCommand;
+
+impl super::Command for CatCommand {
+    fn name(&self) -> &'static str { "cat" }
+    fn description(&self) -> &'static str { "Display file contents" }
+    fn accepts_stdin(&self) -> bool { true }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

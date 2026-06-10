@@ -55,3 +55,14 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(output)
 }
+
+pub struct UniqCommand;
+
+impl super::Command for UniqCommand {
+    fn name(&self) -> &'static str { "uniq" }
+    fn description(&self) -> &'static str { "Filter adjacent duplicate lines (-c for counts)" }
+    fn accepts_stdin(&self) -> bool { true }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}

@@ -1,43 +1,11 @@
-//! Virtual File System implementation
+//! Virtual File System tree operations.
 //!
-//! Provides a tree-structured in-memory filesystem with POSIX-style paths,
-//! serialized to JSON for OPFS persistence.
+//! Provides the `Vfs` struct with POSIX-style path resolution, file/directory
+//! CRUD operations, and JSON serialization for OPFS persistence.
 
+use super::node::{DirNode, FileNode, FsNode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-// ---------------------------------------------------------------------------
-// Data types
-// ---------------------------------------------------------------------------
-
-/// A node in the virtual file system (either a file or directory)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FsNode {
-    File(FileNode),
-    Directory(DirNode),
-}
-
-/// A file node with text content
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileNode {
-    pub name: String,
-    pub content: String,
-}
-
-/// A directory node with children
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DirNode {
-    pub name: String,
-    pub children: HashMap<String, FsNode>,
-}
-
-/// The virtual file system – holds the root tree and tracks the current working
-/// directory as an absolute POSIX path (e.g. "/" or "/home/user").
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Vfs {
-    pub root: DirNode,
-    pub cwd: String,
-}
 
 // ---------------------------------------------------------------------------
 // Helpers (pure functions)
@@ -72,6 +40,14 @@ fn path_display_name(path: &str) -> &str {
 // ---------------------------------------------------------------------------
 // Vfs implementation
 // ---------------------------------------------------------------------------
+
+/// The virtual file system – holds the root tree and tracks the current working
+/// directory as an absolute POSIX path (e.g. "/" or "/home/user").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Vfs {
+    pub root: DirNode,
+    pub cwd: String,
+}
 
 impl Default for Vfs {
     fn default() -> Self {

@@ -40,3 +40,13 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(String::new())
 }
+
+pub struct RmCommand;
+
+impl super::Command for RmCommand {
+    fn name(&self) -> &'static str { "rm" }
+    fn description(&self) -> &'static str { "Remove files or directories (-r for recursive)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}

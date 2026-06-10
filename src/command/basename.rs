@@ -31,6 +31,16 @@ pub fn execute(args: &[&str]) -> Result<String, String> {
     Ok(format!("{}\n", result))
 }
 
+pub struct BasenameCommand;
+
+impl super::Command for BasenameCommand {
+    fn name(&self) -> &'static str { "basename" }
+    fn description(&self) -> &'static str { "Strip directory from filename" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

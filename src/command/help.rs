@@ -72,3 +72,13 @@ pub fn execute() -> String {
     }
     output
 }
+
+pub struct HelpCommand;
+
+impl super::Command for HelpCommand {
+    fn name(&self) -> &'static str { "help" }
+    fn description(&self) -> &'static str { "Display this help message" }
+    fn execute(&self, _ctx: &mut super::CommandContext) -> Result<String, String> {
+        Ok(execute())
+    }
+}

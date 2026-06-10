@@ -24,6 +24,16 @@ pub fn execute(args: &[&str]) -> Result<String, String> {
     Ok(String::new())
 }
 
+pub struct ChownCommand;
+
+impl super::Command for ChownCommand {
+    fn name(&self) -> &'static str { "chown" }
+    fn description(&self) -> &'static str { "Change file ownership (owner[:group])" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

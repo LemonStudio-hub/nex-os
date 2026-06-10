@@ -16,3 +16,13 @@ pub fn execute(env_vars: &HashMap<String, String>) -> Result<String, String> {
     }
     Ok(output)
 }
+
+pub struct EnvCommand;
+
+impl super::Command for EnvCommand {
+    fn name(&self) -> &'static str { "env" }
+    fn description(&self) -> &'static str { "Display environment variables" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(&*ctx.env_vars)
+    }
+}

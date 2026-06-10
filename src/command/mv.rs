@@ -24,6 +24,16 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
     Ok(String::new())
 }
 
+pub struct MvCommand;
+
+impl super::Command for MvCommand {
+    fn name(&self) -> &'static str { "mv" }
+    fn description(&self) -> &'static str { "Move or rename files and directories" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -68,6 +68,17 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     Ok(output)
 }
 
+pub struct GrepCommand;
+
+impl super::Command for GrepCommand {
+    fn name(&self) -> &'static str { "grep" }
+    fn description(&self) -> &'static str { "Search for patterns in files (-i case-insensitive, -n line numbers)" }
+    fn accepts_stdin(&self) -> bool { true }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

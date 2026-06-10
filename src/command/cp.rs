@@ -24,6 +24,16 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
     Ok(String::new())
 }
 
+pub struct CpCommand;
+
+impl super::Command for CpCommand {
+    fn name(&self) -> &'static str { "cp" }
+    fn description(&self) -> &'static str { "Copy files or directories" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -40,6 +40,16 @@ pub fn execute(vfs: &mut Vfs, input: &str, args: &[&str]) -> Result<String, Stri
     Ok(input.to_string())
 }
 
+pub struct TeeCommand;
+
+impl super::Command for TeeCommand {
+    fn name(&self) -> &'static str { "tee" }
+    fn description(&self) -> &'static str { "Write stdin to stdout and files (-a for append)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.stdin, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -25,6 +25,16 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
     Ok(format!("{}\n", args.join(" ")))
 }
 
+pub struct EchoCommand;
+
+impl super::Command for EchoCommand {
+    fn name(&self) -> &'static str { "echo" }
+    fn description(&self) -> &'static str { "Display a line of text (supports > and >> redirection)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -25,3 +25,13 @@ pub fn execute() -> Result<String, String> {
         Ok(format!("{}\n", secs))
     }
 }
+
+pub struct DateCommand;
+
+impl super::Command for DateCommand {
+    fn name(&self) -> &'static str { "date" }
+    fn description(&self) -> &'static str { "Display the current date and time" }
+    fn execute(&self, _ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute()
+    }
+}

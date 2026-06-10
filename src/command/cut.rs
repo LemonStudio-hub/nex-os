@@ -63,6 +63,17 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     Ok(output)
 }
 
+pub struct CutCommand;
+
+impl super::Command for CutCommand {
+    fn name(&self) -> &'static str { "cut" }
+    fn description(&self) -> &'static str { "Extract fields from each line (-f FIELDS -d DELIM)" }
+    fn accepts_stdin(&self) -> bool { true }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

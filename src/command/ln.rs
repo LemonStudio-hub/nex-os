@@ -52,6 +52,16 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
     Ok(String::new())
 }
 
+pub struct LnCommand;
+
+impl super::Command for LnCommand {
+    fn name(&self) -> &'static str { "ln" }
+    fn description(&self) -> &'static str { "Create links (-s for symbolic)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

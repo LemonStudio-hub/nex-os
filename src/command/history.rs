@@ -12,3 +12,13 @@ pub fn execute(history: &[String]) -> Result<String, String> {
     }
     Ok(output)
 }
+
+pub struct HistoryCommand;
+
+impl super::Command for HistoryCommand {
+    fn name(&self) -> &'static str { "history" }
+    fn description(&self) -> &'static str { "Display command history" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.history)
+    }
+}

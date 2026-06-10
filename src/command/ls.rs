@@ -79,6 +79,16 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     }
 }
 
+pub struct LsCommand;
+
+impl super::Command for LsCommand {
+    fn name(&self) -> &'static str { "ls" }
+    fn description(&self) -> &'static str { "List directory contents (-l for long format)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

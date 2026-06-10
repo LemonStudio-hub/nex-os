@@ -33,6 +33,16 @@ pub fn execute(env_vars: &mut HashMap<String, String>, args: &[&str]) -> Result<
     Ok(String::new())
 }
 
+pub struct ExportCommand;
+
+impl super::Command for ExportCommand {
+    fn name(&self) -> &'static str { "export" }
+    fn description(&self) -> &'static str { "Set environment variables (export KEY=VALUE)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.env_vars, ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

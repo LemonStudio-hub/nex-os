@@ -23,3 +23,13 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
     vfs.cwd = target;
     Ok(String::new())
 }
+
+pub struct CdCommand;
+
+impl super::Command for CdCommand {
+    fn name(&self) -> &'static str { "cd" }
+    fn description(&self) -> &'static str { "Change the current directory" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}

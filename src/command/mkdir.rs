@@ -63,3 +63,13 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 
     Ok(String::new())
 }
+
+pub struct MkdirCommand;
+
+impl super::Command for MkdirCommand {
+    fn name(&self) -> &'static str { "mkdir" }
+    fn description(&self) -> &'static str { "Create directories (-p for recursive)" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.vfs, ctx.args)
+    }
+}

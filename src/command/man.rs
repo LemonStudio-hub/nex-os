@@ -93,6 +93,16 @@ fn get_manual(cmd: &str) -> String {
     }
 }
 
+pub struct ManCommand;
+
+impl super::Command for ManCommand {
+    fn name(&self) -> &'static str { "man" }
+    fn description(&self) -> &'static str { "Display manual page for a command" }
+    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+        execute(ctx.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
