@@ -1,13 +1,25 @@
 //! Command dispatch via the registry.
+//!
+//! This module implements [`Shell::execute_with_stdin`], which is the final
+//! step of command execution: tokenise the input, look up the command in
+//! the registry, build a [`CommandContext`], and call `execute`.
 
 use crate::command::CommandContext;
 use crate::shell::Shell;
 
 impl Shell {
-    /// Execute a single command with optional stdin from a preceding pipe stage.
+    /// Execute a single command string with optional stdin from a preceding
+    /// pipe stage.
     ///
-    /// Uses the command registry for dispatch. If the command accepts stdin,
-    /// writes stdin to a temp file and passes that path as a trailing argument.
+    /// # Flow
+    ///
+    /// 1. Tokenise the input by whitespace.
+    /// 2. Look up the command name in the registry.
+    /// 3. If stdin is non-empty **and** the command declares
+    ///    `accepts_stdin()`, write stdin to `/tmp/.pipe_input` and append
+    ///    that path to the argument list.  This lets file-reading commands
+    ///    (cat, grep, wc, …) consume piped data transparently.
+    /// 4. Build a [`CommandContext`] and call the command's `execute` method.
     pub fn execute_with_stdin(&mut self, input: &str, stdin: &str) -> Result<String, String> {
         let tokens: Vec<&str> = input.split_whitespace().collect();
         if tokens.is_empty() {
@@ -43,6 +55,7 @@ impl Shell {
             hostname: &self.hostname,
             history: &self.history,
             env_vars: &mut self.env_vars,
+            registry: &self.registry,
         };
 
         command.execute(&mut ctx)

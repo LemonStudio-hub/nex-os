@@ -1,37 +1,57 @@
-//! echo command - display text or write to files
+//! `echo` - display a line of text
+//!
+//! Prints its arguments separated by spaces, followed by a trailing newline.
+//! This is a simplified implementation of the POSIX `echo` command that
+//! handles the most common use case.
+//!
+//! # Usage
+//!
+//! ```text
+//! echo [text ...]
+//! ```
+//!
+//! # Behavior
+//!
+//! - With no arguments, outputs a single empty line (`\n`).
+//! - Multiple arguments are joined with spaces.
+//! - Output redirection (`>` / `>>`) is not handled here; it is managed
+//!   by the shell pipeline layer (`shell/dispatch.rs`) which intercepts
+//!   the last stage's output and writes it to a file when redirection
+//!   operators are present.
 
-use crate::vfs::Vfs;
-
-pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
-    // Check for >> or > redirection operators within args
-    for i in 0..args.len() {
-        if args[i] == ">>" && i + 1 < args.len() {
-            let content = args[..i].join(" ");
-            let file = args[i + 1];
-            let resolved = vfs.resolve_path(file)?;
-            let existing = vfs.read_file(&resolved).unwrap_or_default();
-            vfs.write_file(&resolved, &format!("{}{}\n", existing, content))?;
-            return Ok(String::new());
-        }
-        if args[i] == ">" && i + 1 < args.len() {
-            let content = args[..i].join(" ");
-            let file = args[i + 1];
-            let resolved = vfs.resolve_path(file)?;
-            vfs.write_file(&resolved, &format!("{}\n", content))?;
-            return Ok(String::new());
-        }
-    }
-
+/// Execute the `echo` command.
+///
+/// Joins all arguments with spaces and appends a newline.
+///
+/// # Arguments
+///
+/// * `args` - The text tokens to echo.
+///
+/// # Returns
+///
+/// The concatenated text with a trailing newline.
+pub fn execute(args: &[&str]) -> Result<String, String> {
     Ok(format!("{}\n", args.join(" ")))
 }
 
+/// Unit struct implementing the [`super::Command`] trait for `echo`.
 pub struct EchoCommand;
 
+/// Registers `echo` with the command system.
 impl super::Command for EchoCommand {
     fn name(&self) -> &'static str { "echo" }
-    fn description(&self) -> &'static str { "Display a line of text (supports > and >> redirection)" }
+    fn description(&self) -> &'static str { "Display a line of text" }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(ctx.args)
+    }
+    fn synopsis(&self) -> &'static str { "echo text" }
+    fn man_description(&self) -> &'static str {
+        "Display a line of text to standard output. Arguments are joined with spaces and a \
+trailing newline is appended. With no arguments, prints an empty line. Shell redirection \
+operators (> and >>) are handled by the pipeline layer, so echo output can be written to files."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &["echo Hello World", "echo data > output.txt"]
     }
 }
 
@@ -41,40 +61,19 @@ mod tests {
 
     #[test]
     fn no_args_prints_empty_line() {
-        let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, &[]).unwrap();
+        let out = execute(&[]).unwrap();
         assert_eq!(out, "\n");
     }
 
     #[test]
     fn single_word() {
-        let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, &["hello"]).unwrap();
+        let out = execute(&["hello"]).unwrap();
         assert_eq!(out, "hello\n");
     }
 
     #[test]
     fn multiple_words() {
-        let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, &["hello", "world"]).unwrap();
+        let out = execute(&["hello", "world"]).unwrap();
         assert_eq!(out, "hello world\n");
-    }
-
-    #[test]
-    fn redirect_overwrite() {
-        let mut vfs = Vfs::new();
-        execute(&mut vfs, &["first", ">", "/tmp/out.txt"]).unwrap();
-        execute(&mut vfs, &["second", ">", "/tmp/out.txt"]).unwrap();
-        assert_eq!(vfs.read_file("/tmp/out.txt").unwrap(), "second\n");
-    }
-
-    #[test]
-    fn redirect_append() {
-        let mut vfs = Vfs::new();
-        execute(&mut vfs, &["first", ">", "/tmp/out.txt"]).unwrap();
-        execute(&mut vfs, &["second", ">>", "/tmp/out.txt"]).unwrap();
-        let content = vfs.read_file("/tmp/out.txt").unwrap();
-        assert!(content.contains("first"));
-        assert!(content.contains("second"));
     }
 }

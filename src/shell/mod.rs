@@ -1,4 +1,17 @@
-//! Shell state management
+//! Shell state management and top-level command execution.
+//!
+//! The [`Shell`] struct owns the VFS, command registry, environment variables,
+//! and command history.  It is the central coordinator that:
+//!
+//! 1. Receives raw input from the frontend.
+//! 2. Splits it by `&&` (sequential chaining, stop on first error).
+//! 3. Splits each segment by `|` (pipeline stages).
+//! 4. Extracts `>` / `>>` redirections.
+//! 5. Executes the pipeline, passing stdin between stages.
+//!
+//! Submodules:
+//! - [`dispatch`] — single-command execution via the registry.
+//! - [`pipeline`] — pipe splitting and redirect extraction.
 
 mod dispatch;
 mod pipeline;
@@ -7,18 +20,29 @@ use crate::command::Registry;
 use crate::vfs::Vfs;
 use std::collections::HashMap;
 
-/// Shell state
+/// The top-level shell state.
+///
+/// Holds everything needed to execute commands: the virtual file system,
+/// the command registry, environment variables, command history, and
+/// identity metadata (username / hostname) used in the prompt.
 pub struct Shell {
+    /// The in-memory virtual file system.
     pub vfs: Vfs,
+    /// The logged-in username (displayed in the prompt).
     pub username: String,
+    /// The machine hostname (displayed in the prompt).
     pub hostname: String,
+    /// Chronological list of previously executed command strings.
     pub history: Vec<String>,
+    /// Shell environment variables (e.g. `HOME`, `PATH`, `PWD`).
     pub env_vars: HashMap<String, String>,
+    /// Central registry of all available commands, built once at init.
     registry: Registry,
 }
 
 impl Shell {
-    /// Create a new shell with default user and hostname
+    /// Create a new shell with default identity (`user@nexos`) and
+    /// populate standard environment variables (`HOME`, `PATH`, `PWD`, etc.).
     pub fn new(vfs: Vfs) -> Self {
         let username = "user".to_string();
         let hostname = "nexos".to_string();
@@ -43,8 +67,10 @@ impl Shell {
         }
     }
 
-    /// Get the formatted prompt string with ANSI colors
-    /// Green for user@host, blue for cwd, reset after
+    /// Build the formatted prompt string with ANSI colour codes.
+    ///
+    /// The prompt is displayed as `user@hostname:/cwd$ ` with green for the
+    /// identity, blue for the path, and a reset sequence at the end.
     pub fn get_prompt(&self) -> String {
         format!(
             "\x1b[1;32m{}@{}:\x1b[1;34m{}\x1b[0m$ ",
@@ -52,12 +78,21 @@ impl Shell {
         )
     }
 
-    /// Parse and execute a command string.
+    /// Parse and execute a full command string.
     ///
-    /// Precedence (highest to lowest):
-    /// 1. `|`  (pipe) — within a `&&` segment
-    /// 2. `>`, `>>` (redirection) — within a single pipe stage
-    /// 3. `&&` (sequential chain — stop on first error)
+    /// # Operator precedence (highest → lowest)
+    ///
+    /// 1. `|`  — pipe: within a single `&&` segment.
+    /// 2. `>`, `>>` — file redirection: within a single pipe stage.
+    /// 3. `&&` — sequential chaining: stop on the first error.
+    ///
+    /// # Behaviour
+    ///
+    /// - The raw input is appended to the command history.
+    /// - The `PWD` environment variable is updated to match `vfs.cwd`.
+    /// - On success the combined stdout of the pipeline is returned.
+    /// - On error the error message is returned and remaining `&&` segments
+    ///   are skipped.
     pub fn execute(&mut self, input: &str) -> String {
         let input = input.trim();
         if input.is_empty() {
@@ -107,9 +142,12 @@ impl Shell {
         output
     }
 
-    /// Execute a pipeline of commands, passing stdout of each as stdin to the next.
+    /// Execute a pipeline of commands, passing the stdout of each stage as
+    /// stdin to the next.
     ///
-    /// Only the last stage's redirection (if any) is applied.
+    /// Only the **last** stage's redirection (if any) is applied.  If the
+    /// last stage redirects to a file (`>` or `>>`), the terminal output
+    /// is empty — the content is written to the VFS file instead.
     fn run_pipeline(
         &mut self,
         pipeline: &[(String, Option<(String, bool)>)],
@@ -142,12 +180,15 @@ impl Shell {
         Ok(current_input)
     }
 
-    /// Get tab completion candidates for a partial input
+    /// Get tab-completion candidates for the given partial input string.
+    ///
+    /// Delegates to the command registry, which matches against registered
+    /// command names.
     pub fn get_completions(&self, partial: &str) -> Vec<String> {
         self.registry.completions(partial)
     }
 
-    /// Get the command history
+    /// Return a reference to the command history list.
     pub fn get_history(&self) -> &Vec<String> {
         &self.history
     }

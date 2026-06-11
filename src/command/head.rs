@@ -1,31 +1,68 @@
-//! head command - display the first N lines of a file
+//! `head` - display the first N lines of a file
+//!
+//! Outputs the beginning of a file, defaulting to the first 10 lines.
+//! The line count can be customized with the `-n` flag.
+//!
+//! # Usage
+//!
+//! ```text
+//! head [-n COUNT] <file>
+//! head [-nCOUNT] <file>       # compact flag form
+//! ```
+//!
+//! # Flags
+//!
+//! | Flag | Description |
+//! |------|-------------|
+//! | `-n COUNT` | Number of lines to display (default: 10) |
+//! | `-nCOUNT` | Compact form, e.g., `-n5` |
+//!
+//! # Behavior
+//!
+//! - If the file has fewer lines than the requested count, all lines
+//!   are shown without error.
+//! - Accepts stdin: when used in a pipeline, piped input is passed as
+//!   a file argument by the shell's dispatch logic.
+//! - Returns an error if no file is specified or if the count is not
+//!   a valid positive integer.
 
 use crate::vfs::Vfs;
 
 /// Execute the `head` command.
 ///
-/// Usage: `head [-n COUNT] <file>`
+/// Parses the optional `-n` flag (in either spaced or compact form) and
+/// the required file path, then reads the file and outputs the requested
+/// number of leading lines.
 ///
-/// Displays the first 10 lines of a file by default. Use `-n` to specify
-/// a different number of lines.
+/// # Arguments
+///
+/// * `vfs` - The virtual filesystem to read from.
+/// * `args` - Command-line arguments: optional `-n COUNT` flag and a file path.
+///
+/// # Returns
+///
+/// The first N lines of the file joined by newlines, or an error.
 pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
-    let mut count: usize = 10;
+    let mut count: usize = 10; // Default matches POSIX head behavior.
     let mut file_path: Option<&str> = None;
 
+    // Index-based loop to allow consuming two tokens ("-n" and "5") as one.
     let mut i = 0;
     while i < args.len() {
         if args[i] == "-n" && i + 1 < args.len() {
+            // Spaced form: `-n 5`
             count = args[i + 1]
                 .parse::<usize>()
                 .map_err(|_| format!("head: invalid line count: '{}'", args[i + 1]))?;
             i += 2;
         } else if args[i].starts_with("-n") && args[i].len() > 2 {
-            // Handle `-n5` style
+            // Compact form: `-n5` -- everything after "-n" is the count.
             count = args[i][2..]
                 .parse::<usize>()
                 .map_err(|_| format!("head: invalid line count: '{}'", &args[i][2..]))?;
             i += 1;
         } else if file_path.is_none() {
+            // First non-flag argument is the file path.
             file_path = Some(args[i]);
             i += 1;
         } else {
@@ -37,18 +74,34 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     let resolved = vfs.resolve_path(path)?;
     let content = vfs.read_file(&resolved)?;
 
+    // Take at most `count` lines. If the file is shorter, `.take()` simply
+    // returns all available lines -- no error needed.
     let lines: Vec<&str> = content.lines().take(count).collect();
     Ok(format!("{}\n", lines.join("\n")))
 }
 
+/// Unit struct implementing the [`super::Command`] trait for `head`.
 pub struct HeadCommand;
 
+/// Registers `head` with the command system.
+///
+/// `accepts_stdin()` returns `true` so the shell automatically feeds
+/// piped input as a file argument.
 impl super::Command for HeadCommand {
     fn name(&self) -> &'static str { "head" }
     fn description(&self) -> &'static str { "Display first N lines of a file (-n COUNT)" }
     fn accepts_stdin(&self) -> bool { true }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(ctx.vfs, ctx.args)
+    }
+    fn synopsis(&self) -> &'static str { "head [-n COUNT] file" }
+    fn man_description(&self) -> &'static str {
+        "Display the first N lines of a file to standard output. By default, the first 10 lines \
+are shown. Use the -n flag to specify a different line count; both spaced (-n 5) and compact \
+(-n5) forms are accepted. If the file has fewer lines than requested, all lines are shown."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &["head file.txt", "head -n 5 file.txt", "head -n20 log.txt"]
     }
 }
 

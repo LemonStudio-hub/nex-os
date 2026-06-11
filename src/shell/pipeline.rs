@@ -1,8 +1,24 @@
-//! Pipeline parsing: pipe splitting, redirect extraction.
+//! Pipeline parsing: pipe splitting and redirect extraction.
+//!
+//! This module provides two pure functions used by the shell during command
+//! execution:
+//!
+//! - [`split_pipe_stages`] — splits a command string by top-level `|`,
+//!   respecting single and double quotes.
+//! - [`extract_redirect`] — extracts `>` / `>>` redirection operators from
+//!   a single pipeline stage.
 
 /// Split a command string by top-level `|` tokens, respecting quoted strings.
 ///
-/// Example: `"cat file | grep hello | wc -l"` → `["cat file", "grep hello", "wc -l"]`
+/// Pipe characters inside single (`'`) or double (`"`) quotes are treated as
+/// literal characters and do **not** trigger a split.
+///
+/// # Examples
+///
+/// ```text
+/// "cat file | grep hello | wc -l"  →  ["cat file", "grep hello", "wc -l"]
+/// "echo 'a|b'"                     →  ["echo 'a|b'"]   (no split inside quotes)
+/// ```
 pub fn split_pipe_stages(input: &str) -> Vec<String> {
     let mut stages = Vec::new();
     let mut current = String::new();
@@ -45,12 +61,22 @@ pub fn split_pipe_stages(input: &str) -> Vec<String> {
     stages
 }
 
-/// Extract `>` / `>>` redirection from a single pipeline stage.
+/// Extract a `>` (overwrite) or `>>` (append) redirection from a single
+/// pipeline stage.
 ///
-/// Returns `(command_part, Some((target_file, is_append)))` if redirection is found,
-/// otherwise `(original, None)`.
+/// Returns `(command_part, Some((target_file, is_append)))` when a redirect
+/// is found, otherwise `(original, None)`.
 ///
-/// Handles both `cmd > file` (operator as separate token) and `cmd>file` (no spaces).
+/// # Parsing modes
+///
+/// The function tries two strategies in order:
+///
+/// 1. **Token-based** — handles `cmd > file` where the operator is a
+///    separate whitespace-delimited token.
+/// 2. **Character-based fallback** — handles `cmd>file` or `cmd>>file`
+///    where the operator is glued to the surrounding text.
+///
+/// Quoted filenames have their surrounding quotes stripped.
 pub fn extract_redirect(cmd: &str) -> (String, Option<(String, bool)>) {
     // First try token-based parsing (handles `cmd > file`)
     let tokens: Vec<&str> = cmd.split_whitespace().collect();

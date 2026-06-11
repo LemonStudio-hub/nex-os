@@ -1,26 +1,39 @@
 //! Virtual File System tree operations.
 //!
-//! Provides the `Vfs` struct with POSIX-style path resolution, file/directory
+//! Provides the [`Vfs`] struct with POSIX-style path resolution, file/directory
 //! CRUD operations, and JSON serialization for OPFS persistence.
+//!
+//! # Path resolution
+//!
+//! All public methods accept **absolute** paths (e.g. `"/home/user/file.txt"`).
+//! Relative paths and shell expansions (`~`, `.`, `..`) are first normalised
+//! by [`Vfs::resolve_path`] before being handed to the internal helpers.
+//!
+//! # Persistence model
+//!
+//! The entire tree is serialised to JSON via serde after every command
+//! execution.  The frontend writes that JSON to the browser's Origin Private
+//! File System (OPFS) so that the user's files survive page reloads.
 
 use super::node::{DirNode, FileNode, FsNode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// Helpers (pure functions)
+// Pure helper functions (no VFS state access)
 // ---------------------------------------------------------------------------
 
-/// Split a path string into its non-empty components.
+/// Split a path string into its non-empty, slash-separated components.
 ///
-/// `split_path("/")`  → `[]`
-/// `split_path("/a/b")` → `["a", "b"]`
-/// `split_path("a/b")` → `["a", "b"]`
+/// Leading and trailing slashes are ignored, so both absolute and relative
+/// paths produce the same component list.
 fn split_path(path: &str) -> Vec<&str> {
     path.split('/').filter(|s| !s.is_empty()).collect()
 }
 
-/// Join components back into an absolute path.
+/// Join path components back into an absolute path string.
+///
+/// Returns `"/"` when the slice is empty (i.e. the root directory).
 fn join_components(components: &[&str]) -> String {
     if components.is_empty() {
         "/".to_string()
@@ -29,7 +42,10 @@ fn join_components(components: &[&str]) -> String {
     }
 }
 
-/// Get the last component of a path for display / error messages.
+/// Extract the last component of a path for display or error messages.
+///
+/// For `"/home/user/file.txt"` this returns `"file.txt"`.
+/// For `"/"` it returns `"/"`.
 fn path_display_name(path: &str) -> &str {
     match path.rfind('/') {
         Some(i) if i + 1 < path.len() => &path[i + 1..],
@@ -41,11 +57,23 @@ fn path_display_name(path: &str) -> &str {
 // Vfs implementation
 // ---------------------------------------------------------------------------
 
-/// The virtual file system – holds the root tree and tracks the current working
-/// directory as an absolute POSIX path (e.g. "/" or "/home/user").
+/// The virtual file system — holds the root directory tree and tracks the
+/// current working directory (cwd) as an absolute POSIX path.
+///
+/// # Thread safety
+///
+/// NexOS runs in a single-threaded WASM environment, so `Vfs` does not
+/// implement `Sync` or `Send`.  All mutations go through `&mut self`.
+///
+/// # Persistence
+///
+/// The struct derives `Serialize` / `Deserialize` so it can be round-tripped
+/// through JSON and stored in the browser's OPFS.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Vfs {
+    /// The root directory of the filesystem (name is always empty).
     pub root: DirNode,
+    /// Absolute path of the current working directory (e.g. `"/home/user"`).
     pub cwd: String,
 }
 
@@ -58,7 +86,10 @@ impl Default for Vfs {
 impl Vfs {
     // ---- Construction --------------------------------------------------------
 
-    /// Create a default VFS seeded with the standard top-level directories.
+    /// Create a fresh VFS seeded with the standard POSIX top-level directories
+    /// (`/home`, `/tmp`, `/etc`, `/var`) and a default `/home/user` directory.
+    ///
+    /// The cwd is set to `"/"` (root).
     pub fn new() -> Self {
         let mut root = DirNode {
             name: String::new(), // root's name is empty for convenience
@@ -91,18 +122,36 @@ impl Vfs {
 
     // ---- JSON (de)serialization ----------------------------------------------
 
+    /// Serialise the entire VFS tree to a JSON string.
+    ///
+    /// Used by the frontend to persist state to OPFS after every command.
+    /// Returns an error JSON object if serialisation fails (should be rare).
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))
     }
 
+    /// Deserialise a VFS tree from a JSON string produced by [`to_json`].
+    ///
+    /// Returns `Err` if the JSON is malformed or does not match the expected
+    /// schema.
     pub fn from_json(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| format!("Failed to parse VFS JSON: {}", e))
     }
 
     // ---- Path resolution -----------------------------------------------------
 
-    /// Resolve a path (absolute or relative) to a canonical absolute path string.
-    /// Handles `.`, `..`, and `~` (mapped to /home/user).
+    /// Resolve a user-supplied path (absolute or relative) to a canonical
+    /// absolute path string.
+    ///
+    /// Supports the following expansions:
+    /// - `~`       → `/home/user`
+    /// - `.`       → current directory (no-op)
+    /// - `..`      → parent directory
+    /// - relative paths are resolved against `self.cwd`
+    ///
+    /// Returns `Ok(absolute_path)` on success.  Note that the resolved path
+    /// does **not** guarantee the target exists — callers should check with
+    /// [`exists`] or [`is_dir`] as needed.
     pub fn resolve_path(&self, path: &str) -> Result<String, String> {
         // ~ expansion
         let expanded: String;
@@ -141,8 +190,8 @@ impl Vfs {
 
     // ---- Node access ---------------------------------------------------------
 
-    /// Check whether a node exists at `path` (absolute).
-    /// Handles root "/" as always existing.
+    /// Check whether a node (file or directory) exists at the given absolute
+    /// `path`.  The root path `"/"` is always considered to exist.
     pub fn exists(&self, path: &str) -> bool {
         if path == "/" || path.is_empty() {
             return true;
@@ -150,8 +199,8 @@ impl Vfs {
         self.get_node_at(path).is_some()
     }
 
-    /// Check whether `path` points to a directory.
-    /// Handles root "/" as always being a directory.
+    /// Check whether the given absolute `path` points to a directory.
+    /// The root path `"/"` is always considered a directory.
     pub fn is_dir(&self, path: &str) -> bool {
         if path == "/" || path.is_empty() {
             return true;
@@ -159,8 +208,10 @@ impl Vfs {
         matches!(self.get_node_at(path), Some(FsNode::Directory(_)))
     }
 
-    /// Internal: get an immutable reference to the *directory* at `path`.
-    /// Returns the root when `path` is "/".
+    /// Internal: get an immutable reference to the directory node at `path`.
+    ///
+    /// Returns the root when `path` is `"/"`.  Returns `None` if the path
+    /// does not exist or points to a file.
     fn get_dir(&self, path: &str) -> Option<&DirNode> {
         if path == "/" || path.is_empty() {
             return Some(&self.root);
@@ -176,7 +227,9 @@ impl Vfs {
         Some(current)
     }
 
-    /// Internal: get a mutable reference to the *directory* at `path`.
+    /// Internal: get a mutable reference to the directory node at `path`.
+    ///
+    /// Returns `None` if the path does not exist or points to a file.
     fn get_dir_mut(&mut self, path: &str) -> Option<&mut DirNode> {
         if path == "/" || path.is_empty() {
             return Some(&mut self.root);
@@ -194,8 +247,14 @@ impl Vfs {
 
     // ---- File / directory operations ------------------------------------------
 
-    /// Create a directory at `path` (absolute). Does **not** create intermediates –
-    /// callers (the `mkdir -p` command) are responsible for that.
+    /// Create a new directory at the given absolute `path`.
+    ///
+    /// The parent directory must already exist; intermediate directories are
+    /// **not** created automatically.  The `mkdir -p` command handles
+    /// recursive creation at a higher level.
+    ///
+    /// Returns `Err` if the parent is missing or a node with the same name
+    /// already exists.
     pub fn mkdir(&mut self, path: &str) -> Result<String, String> {
         let (parent_path, name) = self.split_parent_name(path)?;
         let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
@@ -222,8 +281,11 @@ impl Vfs {
         Ok(String::new())
     }
 
-    /// Create an empty file if it doesn't exist. If it already exists, this is
-    /// a no-op (matches POSIX `touch` semantics for a VFS without timestamps).
+    /// Create an empty file at the given absolute `path` if it does not already
+    /// exist.  If a node already exists at that path, this is a no-op (matching
+    /// POSIX `touch` semantics for a VFS without timestamps).
+    ///
+    /// Returns `Err` if the parent directory does not exist.
     pub fn touch(&mut self, path: &str) -> Result<String, String> {
         if self.exists(path) {
             return Ok(String::new());
@@ -246,18 +308,28 @@ impl Vfs {
         Ok(String::new())
     }
 
-    /// Remove the node at `path` (absolute). Works for both files and
-    /// directories. If `recursive` is true, non-empty directories are removed
-    /// along with all their contents.
+    /// Remove the node (file or directory) at the given absolute `path`.
+    ///
+    /// Non-empty directories **cannot** be removed with this method — use
+    /// [`rm_recursive`] for that.  The root path `"/"` can never be removed.
+    ///
+    /// Returns `Err` if the path does not exist or is a non-empty directory.
     pub fn rm(&mut self, path: &str) -> Result<String, String> {
         self.rm_inner(path, false)
     }
 
-    /// Like `rm` but allows removing non-empty directories recursively.
+    /// Remove the node at the given absolute `path`, including non-empty
+    /// directories and all their descendants.
+    ///
+    /// This is the backing implementation for `rm -rf`.
     pub fn rm_recursive(&mut self, path: &str) -> Result<String, String> {
         self.rm_inner(path, true)
     }
 
+    /// Internal implementation shared by [`rm`] and [`rm_recursive`].
+    ///
+    /// When `recursive` is `false`, attempting to remove a non-empty directory
+    /// returns an error.  When `true`, the entire subtree is deleted.
     fn rm_inner(&mut self, path: &str, recursive: bool) -> Result<String, String> {
         if path == "/" {
             return Err("rm: cannot remove '/'".to_string());
@@ -288,7 +360,9 @@ impl Vfs {
         Ok(String::new())
     }
 
-    /// Read the text content of a file at `path`.
+    /// Read and return the text content of the file at the given absolute `path`.
+    ///
+    /// Returns `Err` if the path does not exist or points to a directory.
     pub fn read_file(&self, path: &str) -> Result<String, String> {
         match self.get_node_at(path) {
             Some(FsNode::File(f)) => Ok(f.content.clone()),
@@ -302,8 +376,12 @@ impl Vfs {
         }
     }
 
-    /// Write (overwrite or append) text to a file at `path`. Creates the file
-    /// if it does not exist.
+    /// Write `content` to the file at the given absolute `path`.
+    ///
+    /// If the file already exists its content is **overwritten**.  If it does
+    /// not exist, a new file is created (the parent directory must exist).
+    ///
+    /// Returns `Err` if the parent directory does not exist.
     pub fn write_file(&mut self, path: &str, content: &str) -> Result<String, String> {
         // If file already exists, update in place
         if let Some(FsNode::File(f)) = self.get_node_at_mut(path) {
@@ -330,7 +408,12 @@ impl Vfs {
         Ok(String::new())
     }
 
-    /// List the children of the directory at `path`.
+    /// List the immediate children of the directory at the given absolute `path`.
+    ///
+    /// Returns a `Vec<FsNode>` (files and subdirectories).  The order is
+    /// unspecified — callers that need sorting should do so themselves.
+    ///
+    /// Returns `Err` if the path does not exist or is not a directory.
     pub fn list_dir(&self, path: &str) -> Result<Vec<FsNode>, String> {
         let dir = self.get_dir(path).ok_or_else(|| {
             format!(
@@ -341,7 +424,14 @@ impl Vfs {
         Ok(dir.children.values().cloned().collect())
     }
 
-    /// Copy a file or directory from `src` to `dst`. Both paths are absolute.
+    /// Copy the file or directory at `src` to `dst`.  Both paths are absolute.
+    ///
+    /// If `dst` is an existing directory, the source node is copied **into**
+    /// it (preserving its original name).  Otherwise the source is copied to
+    /// the exact `dst` path, renaming the top-level node as needed.
+    ///
+    /// Returns `Err` if the source does not exist or the destination parent
+    /// is missing.
     pub fn cp(&mut self, src: &str, dst: &str) -> Result<String, String> {
         let node = self
             .get_node_at(src)
@@ -355,12 +445,7 @@ impl Vfs {
 
         // If dst is an existing directory, copy into it
         let actual_dst = if self.is_dir(dst) {
-            let name = path_display_name(src);
-            if dst == "/" {
-                format!("/{}", name)
-            } else {
-                format!("{}/{}", dst, name)
-            }
+            Self::child_path(dst, path_display_name(src))
         } else {
             dst.to_string()
         };
@@ -376,10 +461,7 @@ impl Vfs {
 
         // Rename the top-level node if needed
         let mut new_node = node;
-        match &mut new_node {
-            FsNode::File(f) => f.name = name,
-            FsNode::Directory(d) => d.name = name,
-        }
+        new_node.set_name(name);
 
         parent
             .children
@@ -387,7 +469,13 @@ impl Vfs {
         Ok(String::new())
     }
 
-    /// Move / rename from `src` to `dst`. Both paths are absolute.
+    /// Move (rename) the file or directory from `src` to `dst`.
+    ///
+    /// Internally this copies the node to `dst` and then removes the original.
+    /// Both paths are absolute.
+    ///
+    /// Returns `Err` if the source does not exist or the destination parent
+    /// is missing.
     pub fn mv(&mut self, src: &str, dst: &str) -> Result<String, String> {
         // Copy then remove source
         self.cp(src, dst)?;
@@ -401,7 +489,23 @@ impl Vfs {
 
     // ---- Private helpers -----------------------------------------------------
 
-    /// Split an absolute path into (parent_absolute_path, final_component_name).
+    /// Build the absolute path for a child entry within a directory.
+    ///
+    /// Handles the root directory case where `dir_path == "/"` (avoids
+    /// double-slash: `"/child"` instead of `"//child"`).
+    pub fn child_path(dir_path: &str, child_name: &str) -> String {
+        if dir_path == "/" {
+            format!("/{}", child_name)
+        } else {
+            format!("{}/{}", dir_path, child_name)
+        }
+    }
+
+    /// Split an absolute path into its parent directory path and the final
+    /// component name.
+    ///
+    /// For `"/home/user/file.txt"` this returns `("/home/user", "file.txt")`.
+    /// Returns `Err` for the root path `"/"` (no parent).
     fn split_parent_name(&self, path: &str) -> Result<(String, String), String> {
         let components = split_path(path);
         if components.is_empty() {
@@ -412,7 +516,12 @@ impl Vfs {
         Ok((parent, name))
     }
 
-    /// Get node at an absolute path (handles "/" → synthetic root).
+    /// Get an immutable reference to the node at the given absolute `path`.
+    ///
+    /// Returns `None` for the root path `"/"` (callers must handle the root
+    /// specially because it is a bare `DirNode`, not wrapped in `FsNode`).
+    /// Also returns `None` if any intermediate component is missing or is a
+    /// file rather than a directory.
     fn get_node_at(&self, path: &str) -> Option<&FsNode> {
         if path == "/" || path.is_empty() {
             // Root is a DirNode, not FsNode. We handle this by treating "/"
@@ -438,7 +547,9 @@ impl Vfs {
         None
     }
 
-    /// Get mutable node at an absolute path.
+    /// Get a mutable reference to the node at the given absolute `path`.
+    ///
+    /// Same semantics as [`get_node_at`] but allows in-place mutation.
     fn get_node_at_mut(&mut self, path: &str) -> Option<&mut FsNode> {
         if path == "/" || path.is_empty() {
             return None;
@@ -466,12 +577,15 @@ impl Vfs {
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     // -- Construction --------------------------------------------------------
 
+    /// Verify that [`Vfs::new`] creates the expected default directory layout:
+    /// `/home`, `/tmp`, `/etc`, `/var`, and `/home/user`.
     #[test]
     fn new_creates_default_structure() {
         let vfs = Vfs::new();
@@ -486,6 +600,7 @@ mod tests {
 
     // -- Path resolution ----------------------------------------------------
 
+    /// Absolute paths should be returned unchanged.
     #[test]
     fn resolve_absolute_path() {
         let vfs = Vfs::new();
@@ -494,6 +609,7 @@ mod tests {
         assert_eq!(vfs.resolve_path("/home/user").unwrap(), "/home/user");
     }
 
+    /// Relative paths should be resolved against the current working directory.
     #[test]
     fn resolve_relative_path() {
         let mut vfs = Vfs::new();
@@ -505,6 +621,7 @@ mod tests {
         assert_eq!(vfs.resolve_path("a/b").unwrap(), "/home/user/a/b");
     }
 
+    /// `.` and `..` components should be handled correctly, including chains.
     #[test]
     fn resolve_dot_and_dotdot() {
         let mut vfs = Vfs::new();
@@ -515,6 +632,7 @@ mod tests {
         assert_eq!(vfs.resolve_path("./foo/../bar").unwrap(), "/home/user/bar");
     }
 
+    /// `~` should expand to `/home/user`.
     #[test]
     fn resolve_tilde() {
         let vfs = Vfs::new();
@@ -525,6 +643,7 @@ mod tests {
         );
     }
 
+    /// `..` from root should stay at root (cannot go above `/`).
     #[test]
     fn resolve_dotdot_from_root_stays_at_root() {
         let vfs = Vfs::new();
@@ -533,6 +652,8 @@ mod tests {
 
     // -- exists / is_dir ----------------------------------------------------
 
+    /// [`Vfs::exists`] should return `true` for root and known directories,
+    /// and `false` for paths that have not been created.
     #[test]
     fn exists_returns_true_for_root_and_dirs() {
         let vfs = Vfs::new();
@@ -541,6 +662,7 @@ mod tests {
         assert!(!vfs.exists("/nonexistent"));
     }
 
+    /// [`Vfs::is_dir`] should distinguish files from directories.
     #[test]
     fn is_dir_distinguishes_files_and_dirs() {
         let mut vfs = Vfs::new();
@@ -551,6 +673,7 @@ mod tests {
 
     // -- mkdir ---------------------------------------------------------------
 
+    /// [`Vfs::mkdir`] should create a new directory at the given path.
     #[test]
     fn mkdir_creates_directory() {
         let mut vfs = Vfs::new();
@@ -558,6 +681,7 @@ mod tests {
         assert!(vfs.is_dir("/home/user/newdir"));
     }
 
+    /// [`Vfs::mkdir`] should fail if a node with the same name already exists.
     #[test]
     fn mkdir_fails_if_already_exists() {
         let mut vfs = Vfs::new();
@@ -565,6 +689,7 @@ mod tests {
         assert!(vfs.mkdir("/home/user/dir").is_err());
     }
 
+    /// [`Vfs::mkdir`] should fail if the parent directory does not exist.
     #[test]
     fn mkdir_fails_if_parent_missing() {
         let mut vfs = Vfs::new();
@@ -573,6 +698,7 @@ mod tests {
 
     // -- touch ---------------------------------------------------------------
 
+    /// [`Vfs::touch`] should create an empty file at the given path.
     #[test]
     fn touch_creates_empty_file() {
         let mut vfs = Vfs::new();
@@ -580,6 +706,7 @@ mod tests {
         assert_eq!(vfs.read_file("/home/user/file.txt").unwrap(), "");
     }
 
+    /// [`Vfs::touch`] should be a no-op on an existing file (preserve content).
     #[test]
     fn touch_noop_on_existing_file() {
         let mut vfs = Vfs::new();
@@ -590,6 +717,8 @@ mod tests {
 
     // -- write_file / read_file ---------------------------------------------
 
+    /// [`Vfs::write_file`] followed by [`Vfs::read_file`] should round-trip
+    /// the content correctly.
     #[test]
     fn write_and_read_file() {
         let mut vfs = Vfs::new();
@@ -601,6 +730,7 @@ mod tests {
         );
     }
 
+    /// Writing to an existing file should overwrite its content.
     #[test]
     fn write_file_overwrites() {
         let mut vfs = Vfs::new();
@@ -609,12 +739,14 @@ mod tests {
         assert_eq!(vfs.read_file("/home/user/f.txt").unwrap(), "second");
     }
 
+    /// Reading a directory should return an error (not file content).
     #[test]
     fn read_file_returns_error_for_directory() {
         let vfs = Vfs::new();
         assert!(vfs.read_file("/home").is_err());
     }
 
+    /// Reading a nonexistent path should return an error.
     #[test]
     fn read_file_returns_error_for_nonexistent() {
         let vfs = Vfs::new();
@@ -623,6 +755,7 @@ mod tests {
 
     // -- rm ------------------------------------------------------------------
 
+    /// [`Vfs::rm`] should remove an existing file.
     #[test]
     fn rm_removes_file() {
         let mut vfs = Vfs::new();
@@ -631,6 +764,7 @@ mod tests {
         assert!(!vfs.exists("/home/user/f.txt"));
     }
 
+    /// [`Vfs::rm`] should refuse to remove a non-empty directory.
     #[test]
     fn rm_fails_for_non_empty_dir() {
         let mut vfs = Vfs::new();
@@ -638,12 +772,14 @@ mod tests {
         assert!(vfs.rm("/home/user").is_err());
     }
 
+    /// [`Vfs::rm`] should refuse to remove the root directory.
     #[test]
     fn rm_fails_for_root() {
         let mut vfs = Vfs::new();
         assert!(vfs.rm("/").is_err());
     }
 
+    /// [`Vfs::rm`] should fail when the target path does not exist.
     #[test]
     fn rm_fails_for_nonexistent() {
         let mut vfs = Vfs::new();
@@ -652,6 +788,7 @@ mod tests {
 
     // -- list_dir -----------------------------------------------------------
 
+    /// [`Vfs::list_dir`] should return all children of a directory.
     #[test]
     fn list_dir_returns_children() {
         let mut vfs = Vfs::new();
@@ -661,6 +798,7 @@ mod tests {
         assert_eq!(entries.len(), 2);
     }
 
+    /// Listing the root should return at least the four default top-level dirs.
     #[test]
     fn list_dir_root() {
         let vfs = Vfs::new();
@@ -670,6 +808,7 @@ mod tests {
 
     // -- cp / mv ------------------------------------------------------------
 
+    /// [`Vfs::cp`] should copy a file to a new location, leaving the original intact.
     #[test]
     fn cp_file() {
         let mut vfs = Vfs::new();
@@ -679,6 +818,7 @@ mod tests {
         assert_eq!(vfs.read_file("/home/user/src.txt").unwrap(), "content"); // original intact
     }
 
+    /// [`Vfs::mv`] should move a file, removing the original.
     #[test]
     fn mv_file() {
         let mut vfs = Vfs::new();
@@ -688,6 +828,7 @@ mod tests {
         assert!(!vfs.exists("/home/user/src.txt"));
     }
 
+    /// [`Vfs::cp`] should copy a file into an existing directory, preserving its name.
     #[test]
     fn cp_into_existing_dir() {
         let mut vfs = Vfs::new();
@@ -699,6 +840,7 @@ mod tests {
 
     // -- JSON roundtrip -----------------------------------------------------
 
+    /// Serialising to JSON and back should preserve all VFS data.
     #[test]
     fn json_roundtrip_preserves_data() {
         let mut vfs = Vfs::new();
@@ -719,6 +861,7 @@ mod tests {
         );
     }
 
+    /// [`Vfs::from_json`] should reject malformed JSON input.
     #[test]
     fn from_json_rejects_invalid() {
         assert!(Vfs::from_json("not json").is_err());
@@ -726,6 +869,7 @@ mod tests {
 
     // -- Nested operations --------------------------------------------------
 
+    /// Operations on deeply nested paths should work correctly.
     #[test]
     fn deeply_nested_dir_and_file() {
         let mut vfs = Vfs::new();
@@ -740,6 +884,8 @@ mod tests {
         );
     }
 
+    /// A path that traverses through a file (not a directory) should fail at
+    /// the `is_dir` / `get_dir` level.
     #[test]
     fn resolve_path_through_existing_file() {
         let mut vfs = Vfs::new();

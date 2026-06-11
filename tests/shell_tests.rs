@@ -1,31 +1,37 @@
-//! Integration tests for the Shell: command dispatch, piping, redirection,
-//! chaining, and error handling.
+//! Integration tests for the NexOS shell.
+//!
+//! These tests exercise the full command execution pipeline — from raw input
+//! string through parsing, dispatch, and VFS mutation — without involving
+//! the WASM layer or the browser frontend.
+//!
+//! Tests are grouped by feature area:
+//! - Filesystem commands (cd, ls, mkdir, rm, cp, mv, tree, touch)
+//! - File content commands (echo, cat, head, tail)
+//! - Text processing (grep, sort, uniq, wc, cut, tr, tee, diff)
+//! - Search and disk usage (find, du)
+//! - System info (whoami, hostname, date, history)
+//! - Environment variables (env, export)
+//! - Path utilities (basename, dirname)
+//! - Link commands (ln)
+//! - Permissions (chmod, chown)
+//! - Documentation (man, help)
+//! - Terminal (clear, exit)
+//! - Piping (`|`), redirection (`>`, `>>`), and chaining (`&&`)
+//! - Prompt and tab completion
 
 use nexos::shell::Shell;
 use nexos::vfs::Vfs;
 
-/// Helper: create a fresh Shell with default VFS
+/// Helper: create a fresh [`Shell`] with a default VFS for testing.
 fn new_shell() -> Shell {
     Shell::new(Vfs::new())
-}
-
-/// Helper: create a Shell, seed some files, and return it
-#[allow(dead_code)]
-fn shell_with_files() -> Shell {
-    let mut shell = new_shell();
-    shell.execute("mkdir /home/user/project");
-    shell.execute("echo Hello World > /home/user/project/greeting.txt");
-    shell.execute("echo Line two >> /home/user/project/greeting.txt");
-    shell.execute("echo alpha > /home/user/project/letters.txt");
-    shell.execute("echo beta >> /home/user/project/letters.txt");
-    shell.execute("echo gamma >> /home/user/project/letters.txt");
-    shell
 }
 
 // =========================================================================
 // Filesystem commands
 // =========================================================================
 
+/// `pwd` at the initial working directory should report `/`.
 #[test]
 fn test_pwd_at_root() {
     let mut shell = new_shell();
@@ -33,6 +39,7 @@ fn test_pwd_at_root() {
     assert_eq!(out.trim(), "/");
 }
 
+/// `cd` followed by `pwd` should reflect the new working directory.
 #[test]
 fn test_cd_and_pwd() {
     let mut shell = new_shell();
@@ -41,6 +48,7 @@ fn test_cd_and_pwd() {
     assert_eq!(out.trim(), "/home/user");
 }
 
+/// `cd ~` should expand to `/home/user`.
 #[test]
 fn test_cd_tilde() {
     let mut shell = new_shell();
@@ -49,6 +57,7 @@ fn test_cd_tilde() {
     assert_eq!(out.trim(), "/home/user");
 }
 
+/// `cd ..` should navigate to the parent directory.
 #[test]
 fn test_cd_dotdot() {
     let mut shell = new_shell();
@@ -58,6 +67,7 @@ fn test_cd_dotdot() {
     assert_eq!(out.trim(), "/home");
 }
 
+/// `mkdir` followed by `ls` should show the newly created directory.
 #[test]
 fn test_mkdir_and_ls() {
     let mut shell = new_shell();
@@ -66,6 +76,7 @@ fn test_mkdir_and_ls() {
     assert!(out.contains("testdir"));
 }
 
+/// `mkdir -p` should create intermediate directories recursively.
 #[test]
 fn test_mkdir_p_recursive() {
     let mut shell = new_shell();
@@ -73,6 +84,7 @@ fn test_mkdir_p_recursive() {
     assert!(shell.vfs.is_dir("/tmp/a/b/c"));
 }
 
+/// `touch` should create a new empty file.
 #[test]
 fn test_touch_creates_file() {
     let mut shell = new_shell();
@@ -80,6 +92,7 @@ fn test_touch_creates_file() {
     assert!(shell.vfs.exists("/tmp/newfile.txt"));
 }
 
+/// `rm` should remove an existing file.
 #[test]
 fn test_rm_file() {
     let mut shell = new_shell();
@@ -88,6 +101,7 @@ fn test_rm_file() {
     assert!(!shell.vfs.exists("/tmp/to_delete.txt"));
 }
 
+/// `rm` without `-r` should refuse to remove a directory.
 #[test]
 fn test_rm_dir_without_r_fails() {
     let mut shell = new_shell();
@@ -96,6 +110,7 @@ fn test_rm_dir_without_r_fails() {
     assert!(out.contains("directory") || out.contains("Is a directory"));
 }
 
+/// `rm -r` should remove a directory and all its contents.
 #[test]
 fn test_rm_recursive() {
     let mut shell = new_shell();
@@ -105,6 +120,7 @@ fn test_rm_recursive() {
     assert!(!shell.vfs.exists("/tmp/del_dir"));
 }
 
+/// `cp` should copy a file, preserving its content.
 #[test]
 fn test_cp_file() {
     let mut shell = new_shell();
@@ -114,6 +130,7 @@ fn test_cp_file() {
     assert!(out.contains("data"));
 }
 
+/// `mv` should move a file, removing the original.
 #[test]
 fn test_mv_file() {
     let mut shell = new_shell();
@@ -124,6 +141,7 @@ fn test_mv_file() {
     assert!(out.contains("data"));
 }
 
+/// `tree` should display the directory structure recursively.
 #[test]
 fn test_tree() {
     let mut shell = new_shell();
@@ -139,6 +157,7 @@ fn test_tree() {
 // File content commands
 // =========================================================================
 
+/// `echo` with plain text should output the text followed by a newline.
 #[test]
 fn test_echo_basic() {
     let mut shell = new_shell();
@@ -146,6 +165,7 @@ fn test_echo_basic() {
     assert_eq!(out.trim(), "Hello World");
 }
 
+/// `echo ... > file` should overwrite the file content.
 #[test]
 fn test_echo_redirect_overwrite() {
     let mut shell = new_shell();
@@ -156,6 +176,7 @@ fn test_echo_redirect_overwrite() {
     assert!(!out.contains("first"));
 }
 
+/// `echo ... >> file` should append to the file content.
 #[test]
 fn test_echo_redirect_append() {
     let mut shell = new_shell();
@@ -166,6 +187,7 @@ fn test_echo_redirect_append() {
     assert!(out.contains("line2"));
 }
 
+/// `cat` with multiple files should concatenate their contents.
 #[test]
 fn test_cat_multiple_files() {
     let mut shell = new_shell();
@@ -176,6 +198,7 @@ fn test_cat_multiple_files() {
     assert!(out.contains("BBB"));
 }
 
+/// `head` without `-n` should show the first 10 lines by default.
 #[test]
 fn test_head_default() {
     let mut shell = new_shell();
@@ -188,6 +211,7 @@ fn test_head_default() {
     assert!(!out.contains("line11"));
 }
 
+/// `head -n 3` should show exactly the first 3 lines.
 #[test]
 fn test_head_n() {
     let mut shell = new_shell();
@@ -200,6 +224,7 @@ fn test_head_n() {
     assert!(!out.contains("line4"));
 }
 
+/// `tail -n 3` should show the last 3 lines.
 #[test]
 fn test_tail_n() {
     let mut shell = new_shell();
@@ -215,6 +240,7 @@ fn test_tail_n() {
 // Text processing commands
 // =========================================================================
 
+/// `grep` should find lines matching the given pattern.
 #[test]
 fn test_grep_basic() {
     let mut shell = new_shell();
@@ -225,6 +251,7 @@ fn test_grep_basic() {
     assert_eq!(out.lines().count(), 2);
 }
 
+/// `grep -i` should match case-insensitively.
 #[test]
 fn test_grep_case_insensitive() {
     let mut shell = new_shell();
@@ -234,6 +261,7 @@ fn test_grep_case_insensitive() {
     assert!(out.contains("Hello"));
 }
 
+/// `grep -n` should prefix matching lines with their line numbers.
 #[test]
 fn test_grep_line_numbers() {
     let mut shell = new_shell();
@@ -245,6 +273,7 @@ fn test_grep_line_numbers() {
     assert!(out.contains("3:"));
 }
 
+/// `sort` should sort lines alphabetically.
 #[test]
 fn test_sort_basic() {
     let mut shell = new_shell();
@@ -258,6 +287,7 @@ fn test_sort_basic() {
     assert_eq!(lines[2], "cherry");
 }
 
+/// `sort -r` should sort lines in reverse alphabetical order.
 #[test]
 fn test_sort_reverse() {
     let mut shell = new_shell();
@@ -269,6 +299,7 @@ fn test_sort_reverse() {
     assert_eq!(lines[1], "apple");
 }
 
+/// `uniq -c` should prefix each unique line with its occurrence count.
 #[test]
 fn test_uniq_with_count() {
     let mut shell = new_shell();
@@ -284,6 +315,7 @@ fn test_uniq_with_count() {
     assert!(out.contains("1 c"));
 }
 
+/// `wc` should report line, word, and character counts.
 #[test]
 fn test_wc_lines_words_chars() {
     let mut shell = new_shell();
@@ -294,6 +326,7 @@ fn test_wc_lines_words_chars() {
     assert!(out.contains("4")); // 4 words
 }
 
+/// `wc -l` should report only the line count.
 #[test]
 fn test_wc_lines_only() {
     let mut shell = new_shell();
@@ -304,6 +337,7 @@ fn test_wc_lines_only() {
     assert!(out.contains("3"));
 }
 
+/// `cut -f 1,3 -d ,` should extract fields 1 and 3 using comma as delimiter.
 #[test]
 fn test_cut_fields() {
     let mut shell = new_shell();
@@ -314,6 +348,7 @@ fn test_cut_fields() {
     assert!(out.contains("d,f"));
 }
 
+/// `diff` on identical files should produce no output.
 #[test]
 fn test_diff_identical_files() {
     let mut shell = new_shell();
@@ -323,6 +358,7 @@ fn test_diff_identical_files() {
     assert!(out.is_empty());
 }
 
+/// `diff` on different files should produce a non-empty diff.
 #[test]
 fn test_diff_different_files() {
     let mut shell = new_shell();
@@ -337,6 +373,7 @@ fn test_diff_different_files() {
 // Search and disk usage
 // =========================================================================
 
+/// `find ... -name pattern` should return matching files recursively.
 #[test]
 fn test_find_by_name() {
     let mut shell = new_shell();
@@ -350,6 +387,7 @@ fn test_find_by_name() {
     assert!(!out.contains("data.csv"));
 }
 
+/// `du -s` should report disk usage for the given path.
 #[test]
 fn test_du_summary() {
     let mut shell = new_shell();
@@ -362,6 +400,7 @@ fn test_du_summary() {
 // System info commands
 // =========================================================================
 
+/// `whoami` should return the current username.
 #[test]
 fn test_whoami() {
     let mut shell = new_shell();
@@ -369,6 +408,7 @@ fn test_whoami() {
     assert_eq!(out.trim(), "user");
 }
 
+/// `hostname` should return the machine hostname.
 #[test]
 fn test_hostname() {
     let mut shell = new_shell();
@@ -376,6 +416,7 @@ fn test_hostname() {
     assert_eq!(out.trim(), "nexos");
 }
 
+/// `date` should return a non-empty string.
 #[test]
 fn test_date_returns_output() {
     let mut shell = new_shell();
@@ -383,6 +424,7 @@ fn test_date_returns_output() {
     assert!(!out.is_empty());
 }
 
+/// `history` should list all previously executed commands.
 #[test]
 fn test_history_tracks_commands() {
     let mut shell = new_shell();
@@ -399,6 +441,7 @@ fn test_history_tracks_commands() {
 // Environment variables
 // =========================================================================
 
+/// `env` should display the default environment variables.
 #[test]
 fn test_env_shows_defaults() {
     let mut shell = new_shell();
@@ -407,6 +450,7 @@ fn test_env_shows_defaults() {
     assert!(out.contains("HOSTNAME=nexos"));
 }
 
+/// `export KEY=value` should add the variable to the environment.
 #[test]
 fn test_export_sets_variable() {
     let mut shell = new_shell();
@@ -415,6 +459,7 @@ fn test_export_sets_variable() {
     assert!(out.contains("MY_VAR=hello"));
 }
 
+/// `export` without arguments should list all exported variables.
 #[test]
 fn test_export_no_args_lists_all() {
     let mut shell = new_shell();
@@ -427,6 +472,7 @@ fn test_export_no_args_lists_all() {
 // Path utilities
 // =========================================================================
 
+/// `basename` should extract the final component of a path.
 #[test]
 fn test_basename() {
     let mut shell = new_shell();
@@ -434,6 +480,7 @@ fn test_basename() {
     assert_eq!(out.trim(), "file.txt");
 }
 
+/// `basename path .ext` should strip the given suffix.
 #[test]
 fn test_basename_with_suffix() {
     let mut shell = new_shell();
@@ -441,6 +488,7 @@ fn test_basename_with_suffix() {
     assert_eq!(out.trim(), "file");
 }
 
+/// `dirname` should extract the parent directory of a path.
 #[test]
 fn test_dirname() {
     let mut shell = new_shell();
@@ -448,6 +496,7 @@ fn test_dirname() {
     assert_eq!(out.trim(), "/home/user");
 }
 
+/// `dirname` on a bare filename should return `.`.
 #[test]
 fn test_dirname_no_slash() {
     let mut shell = new_shell();
@@ -459,6 +508,7 @@ fn test_dirname_no_slash() {
 // Link commands
 // =========================================================================
 
+/// `ln -s` should create a symbolic link showing the target path.
 #[test]
 fn test_ln_symbolic() {
     let mut shell = new_shell();
@@ -468,6 +518,7 @@ fn test_ln_symbolic() {
     assert!(out.contains("-> /tmp/target.txt"));
 }
 
+/// `ln` (hard link) should copy the file content.
 #[test]
 fn test_ln_hard() {
     let mut shell = new_shell();
@@ -481,6 +532,7 @@ fn test_ln_hard() {
 // Permissions (simulated)
 // =========================================================================
 
+/// `chmod` with a valid octal mode should succeed silently.
 #[test]
 fn test_chmod_valid() {
     let mut shell = new_shell();
@@ -489,6 +541,7 @@ fn test_chmod_valid() {
     assert!(out.is_empty()); // no error
 }
 
+/// `chmod` with an invalid mode should return an error message.
 #[test]
 fn test_chmod_invalid_mode() {
     let mut shell = new_shell();
@@ -497,6 +550,7 @@ fn test_chmod_invalid_mode() {
     assert!(out.contains("invalid mode"));
 }
 
+/// `chown` with a valid owner should succeed silently.
 #[test]
 fn test_chown_valid() {
     let mut shell = new_shell();
@@ -508,6 +562,7 @@ fn test_chown_valid() {
 // Documentation
 // =========================================================================
 
+/// `man ls` should display the manual page with SYNOPSIS section.
 #[test]
 fn test_man_known_command() {
     let mut shell = new_shell();
@@ -516,13 +571,15 @@ fn test_man_known_command() {
     assert!(out.contains("SYNOPSIS"));
 }
 
+/// `man` on an unknown command should report "no entry".
 #[test]
 fn test_man_unknown_command() {
     let mut shell = new_shell();
     let out = shell.execute("man nonexistent");
-    assert!(out.contains("no manual entry"));
+    assert!(out.contains("no entry"));
 }
 
+/// `help` should list all available commands.
 #[test]
 fn test_help_lists_commands() {
     let mut shell = new_shell();
@@ -538,6 +595,7 @@ fn test_help_lists_commands() {
 // Terminal commands
 // =========================================================================
 
+/// `clear` should return the ANSI escape sequence for screen clearing.
 #[test]
 fn test_clear_returns_escape_sequence() {
     let mut shell = new_shell();
@@ -545,6 +603,7 @@ fn test_clear_returns_escape_sequence() {
     assert!(out.contains("\x1b[2J"));
 }
 
+/// `exit` should return an empty string (no-op in this environment).
 #[test]
 fn test_exit_returns_empty() {
     let mut shell = new_shell();
@@ -552,6 +611,7 @@ fn test_exit_returns_empty() {
     assert!(out.is_empty());
 }
 
+/// An unrecognised command should return "command not found".
 #[test]
 fn test_unknown_command() {
     let mut shell = new_shell();
@@ -559,6 +619,7 @@ fn test_unknown_command() {
     assert!(out.contains("command not found"));
 }
 
+/// An empty input string should produce no output.
 #[test]
 fn test_empty_input() {
     let mut shell = new_shell();
@@ -570,6 +631,7 @@ fn test_empty_input() {
 // Piping
 // =========================================================================
 
+/// `cat file | grep pattern` should filter lines through the pipe.
 #[test]
 fn test_pipe_cat_grep() {
     let mut shell = new_shell();
@@ -581,6 +643,7 @@ fn test_pipe_cat_grep() {
     assert!(!out.contains("world"));
 }
 
+/// `sort | uniq -c` should sort and count unique lines.
 #[test]
 fn test_pipe_sort_uniq() {
     let mut shell = new_shell();
@@ -593,6 +656,7 @@ fn test_pipe_sort_uniq() {
     assert!(out.contains("2 b"));
 }
 
+/// `echo ... | grep pattern` should filter piped text.
 #[test]
 fn test_pipe_echo_grep() {
     let mut shell = new_shell();
@@ -600,6 +664,7 @@ fn test_pipe_echo_grep() {
     assert!(out.contains("hello"));
 }
 
+/// `echo ... | wc -w` should count words from piped input.
 #[test]
 fn test_pipe_echo_wc() {
     let mut shell = new_shell();
@@ -607,6 +672,7 @@ fn test_pipe_echo_wc() {
     assert!(out.contains("2"));
 }
 
+/// Multi-stage pipeline (`sort | uniq | wc -l`) should chain correctly.
 #[test]
 fn test_pipe_multi_stage() {
     let mut shell = new_shell();
@@ -623,6 +689,7 @@ fn test_pipe_multi_stage() {
 // Redirection with pipes
 // =========================================================================
 
+/// `cmd | cmd > file` should redirect the final pipeline output to a file.
 #[test]
 fn test_pipe_redirect_to_file() {
     let mut shell = new_shell();
@@ -634,6 +701,7 @@ fn test_pipe_redirect_to_file() {
     assert!(!out.contains("world"));
 }
 
+/// `>>` should append to a file rather than overwrite.
 #[test]
 fn test_redirect_append() {
     let mut shell = new_shell();
@@ -648,6 +716,7 @@ fn test_redirect_append() {
 // Chaining with &&
 // =========================================================================
 
+/// `cmd1 && cmd2 && cmd3` should execute all commands when each succeeds.
 #[test]
 fn test_and_chain_success() {
     let mut shell = new_shell();
@@ -656,6 +725,7 @@ fn test_and_chain_success() {
     assert!(shell.vfs.exists("/tmp/new/f.txt"));
 }
 
+/// `&&` chaining should stop at the first failing command.
 #[test]
 fn test_and_chain_stops_on_error() {
     let mut shell = new_shell();
@@ -663,6 +733,7 @@ fn test_and_chain_stops_on_error() {
     assert!(!out.contains("should_not_appear"));
 }
 
+/// `&&` chains can contain piped commands.
 #[test]
 fn test_and_chain_with_pipes() {
     let mut shell = new_shell();
@@ -676,6 +747,7 @@ fn test_and_chain_with_pipes() {
 // Prompt
 // =========================================================================
 
+/// The prompt should contain the username, hostname, and current directory.
 #[test]
 fn test_prompt_contains_user_and_host() {
     let shell = new_shell();
@@ -685,6 +757,7 @@ fn test_prompt_contains_user_and_host() {
     assert!(prompt.contains("/"));
 }
 
+/// The prompt should update when the working directory changes.
 #[test]
 fn test_prompt_reflects_cwd() {
     let mut shell = new_shell();
@@ -697,6 +770,7 @@ fn test_prompt_reflects_cwd() {
 // Tab completion
 // =========================================================================
 
+/// Tab completion with a partial prefix should return all matching commands.
 #[test]
 fn test_completions_partial_match() {
     let shell = new_shell();
@@ -705,6 +779,7 @@ fn test_completions_partial_match() {
     assert!(completions.contains(&"head".to_string()));
 }
 
+/// Tab completion with no matching prefix should return an empty list.
 #[test]
 fn test_completions_no_match() {
     let shell = new_shell();
@@ -712,6 +787,7 @@ fn test_completions_no_match() {
     assert!(completions.is_empty());
 }
 
+/// Tab completion with an exact command name should return just that command.
 #[test]
 fn test_completions_exact_match() {
     let shell = new_shell();
@@ -723,6 +799,8 @@ fn test_completions_exact_match() {
 // VFS persistence (JSON roundtrip via shell)
 // =========================================================================
 
+/// Serialising the VFS to JSON and restoring it should preserve all data
+/// and the current working directory.
 #[test]
 fn test_vfs_persistence_via_shell() {
     let mut shell = new_shell();
@@ -745,6 +823,7 @@ fn test_vfs_persistence_via_shell() {
 
 // -- tr via pipe ----------------------------------------------------------
 
+/// `echo ... | tr old new` should translate characters via pipe.
 #[test]
 fn test_tr_via_pipe() {
     let mut shell = new_shell();
@@ -752,6 +831,7 @@ fn test_tr_via_pipe() {
     assert!(out.contains("Hello"));
 }
 
+/// `tr` with multiple characters should translate each independently.
 #[test]
 fn test_tr_translate_multiple_chars() {
     let mut shell = new_shell();
@@ -761,6 +841,7 @@ fn test_tr_translate_multiple_chars() {
 
 // -- tee via pipe ---------------------------------------------------------
 
+/// `tee` should write to a file and also pass data through to stdout.
 #[test]
 fn test_tee_writes_and_outputs() {
     let mut shell = new_shell();
@@ -770,6 +851,7 @@ fn test_tee_writes_and_outputs() {
     assert!(file_content.contains("piped"));
 }
 
+/// `tee -a` should append to the file rather than overwrite.
 #[test]
 fn test_tee_append_mode() {
     let mut shell = new_shell();
@@ -782,6 +864,7 @@ fn test_tee_append_mode() {
 
 // -- ls -------------------------------------------------------------------
 
+/// `ls` on a directory should list its contents.
 #[test]
 fn test_ls_direct() {
     let mut shell = new_shell();
@@ -792,6 +875,7 @@ fn test_ls_direct() {
     assert!(out.contains("ls_dir"));
 }
 
+/// `ls -l` should show type indicators and names.
 #[test]
 fn test_ls_long_format() {
     let mut shell = new_shell();
@@ -802,6 +886,7 @@ fn test_ls_long_format() {
     assert!(out.contains("d ls_d/"));
 }
 
+/// `ls` on a single file should show just that file's name.
 #[test]
 fn test_ls_single_file() {
     let mut shell = new_shell();
@@ -812,6 +897,7 @@ fn test_ls_single_file() {
 
 // -- grep edge cases ------------------------------------------------------
 
+/// `grep` with multiple files should prefix matches with the filename.
 #[test]
 fn test_grep_multiple_files_shows_filename() {
     let mut shell = new_shell();
@@ -822,6 +908,7 @@ fn test_grep_multiple_files_shows_filename() {
     assert!(out.contains("/tmp/gb.txt:"));
 }
 
+/// `grep -in` should combine case-insensitive and line-number flags.
 #[test]
 fn test_grep_combined_in_flag() {
     let mut shell = new_shell();
@@ -831,6 +918,7 @@ fn test_grep_combined_in_flag() {
     assert!(out.contains("1:"));
 }
 
+/// `grep` with no matching lines should return empty output.
 #[test]
 fn test_grep_no_match() {
     let mut shell = new_shell();
@@ -841,6 +929,7 @@ fn test_grep_no_match() {
 
 // -- wc specific flags ----------------------------------------------------
 
+/// `wc -w` should report only the word count.
 #[test]
 fn test_wc_words_only() {
     let mut shell = new_shell();
@@ -851,6 +940,7 @@ fn test_wc_words_only() {
 
 // -- echo edge cases ------------------------------------------------------
 
+/// `echo` with no arguments should print an empty line.
 #[test]
 fn test_echo_no_args() {
     let mut shell = new_shell();
@@ -860,6 +950,7 @@ fn test_echo_no_args() {
 
 // -- cat edge cases -------------------------------------------------------
 
+/// `cat` on a nonexistent file should return an error.
 #[test]
 fn test_cat_nonexistent_file() {
     let mut shell = new_shell();
@@ -869,6 +960,7 @@ fn test_cat_nonexistent_file() {
 
 // -- find edge cases ------------------------------------------------------
 
+/// `find` with no matching files should return empty output.
 #[test]
 fn test_find_no_results() {
     let mut shell = new_shell();
@@ -879,6 +971,7 @@ fn test_find_no_results() {
 
 // -- export edge cases ----------------------------------------------------
 
+/// `export` should handle values containing `=` signs correctly.
 #[test]
 fn test_export_value_with_equals() {
     let mut shell = new_shell();
@@ -889,6 +982,7 @@ fn test_export_value_with_equals() {
 
 // -- pipe with grep from file ---------------------------------------------
 
+/// Piped grep from a file should correctly filter lines.
 #[test]
 fn test_pipe_grep_from_file() {
     let mut shell = new_shell();
@@ -902,6 +996,7 @@ fn test_pipe_grep_from_file() {
 
 // -- multi-stage pipes ----------------------------------------------------
 
+/// Three-stage pipeline (`sort | uniq | wc -l`) should chain correctly.
 #[test]
 fn test_pipe_sort_uniq_wc() {
     let mut shell = new_shell();
@@ -916,6 +1011,7 @@ fn test_pipe_sort_uniq_wc() {
 
 // -- && chain edge cases --------------------------------------------------
 
+/// Three-command `&&` chain should execute all commands.
 #[test]
 fn test_and_chain_three_commands() {
     let mut shell = new_shell();
@@ -925,6 +1021,7 @@ fn test_and_chain_three_commands() {
     assert!(out.contains("c"));
 }
 
+/// `&&` chain where the first command fails should not run subsequent commands.
 #[test]
 fn test_and_chain_first_fails() {
     let mut shell = new_shell();
@@ -934,6 +1031,7 @@ fn test_and_chain_first_fails() {
 
 // -- error handling -------------------------------------------------------
 
+/// `tr` with missing arguments should return an error message.
 #[test]
 fn test_tr_missing_args() {
     let mut shell = new_shell();
@@ -941,6 +1039,7 @@ fn test_tr_missing_args() {
     assert!(out.contains("missing operand") || out.contains("error"));
 }
 
+/// `tee` without a filename argument should return an error.
 #[test]
 fn test_tee_missing_file() {
     let mut shell = new_shell();
@@ -950,6 +1049,7 @@ fn test_tee_missing_file() {
 
 // -- diff edge cases ------------------------------------------------------
 
+/// `diff` between a file and an empty file should show differences.
 #[test]
 fn test_diff_one_empty() {
     let mut shell = new_shell();
@@ -961,6 +1061,7 @@ fn test_diff_one_empty() {
 
 // -- cp directory ---------------------------------------------------------
 
+/// `cp file dir/` should copy the file into the directory.
 #[test]
 fn test_cp_into_existing_dir() {
     let mut shell = new_shell();

@@ -1,8 +1,18 @@
-//! Command trait, context, and registry.
+//! Command trait, execution context, and command registry.
 //!
-//! Every command implements the `Command` trait and is registered in the
-//! `Registry`. The shell dispatches commands through the registry instead
-//! of a monolithic match statement.
+//! Every built-in command implements the [`Command`] trait and is registered
+//! in the [`Registry`].  The shell dispatches commands through the registry
+//! instead of a monolithic `match` statement, making it trivial to add new
+//! commands: create a file, implement the trait, and register.
+//!
+//! # Adding a new command
+//!
+//! 1. Create `src/command/<name>.rs` with a struct implementing [`Command`].
+//! 2. Add `pub mod <name>;` to this file.
+//! 3. Register the struct in [`register_all`].
+//!
+//! The trait's [`Command::name`] and [`Command::accepts_stdin`] methods
+//! automatically handle tab completion and pipe stdin routing.
 
 use crate::vfs::Vfs;
 use std::collections::HashMap;
@@ -11,43 +21,93 @@ use std::collections::HashMap;
 // Command trait
 // ---------------------------------------------------------------------------
 
-/// Context passed to every command execution. Commands borrow only the
-/// fields they need — unused fields are silently ignored.
+/// Execution context passed to every command.
+///
+/// Commands borrow only the fields they need — unused fields are silently
+/// ignored by the compiler.  The lifetime `'a` ties all references to the
+/// shell's own lifetime, preventing dangling pointers.
 pub struct CommandContext<'a> {
+    /// Mutable reference to the virtual file system.
     pub vfs: &'a mut Vfs,
+    /// Stdin content from the preceding pipe stage (empty string if none).
     pub stdin: &'a str,
+    /// Command-line arguments (tokens after the command name).
     pub args: &'a [&'a str],
+    /// The logged-in username.
     pub username: &'a str,
+    /// The machine hostname.
     pub hostname: &'a str,
+    /// The full command history (read-only).
     pub history: &'a [String],
+    /// Mutable reference to the shell's environment variables.
     pub env_vars: &'a mut HashMap<String, String>,
+    /// Reference to the command registry (for introspection by `man`, `help`).
+    pub registry: &'a Registry,
 }
 
-/// A shell command with metadata and execution logic.
+/// A built-in shell command.
+///
+/// Each command is a unit struct that implements this trait.  The trait
+/// provides metadata (name, description, stdin acceptance) and the
+/// execution logic.
 pub trait Command {
-    /// The command name as typed by the user (e.g. "cat", "ls").
+    /// The command name as typed by the user (e.g. `"cat"`, `"ls"`).
     fn name(&self) -> &'static str;
 
-    /// One-line description shown in `help`.
+    /// One-line description shown in the `help` output.
     fn description(&self) -> &'static str;
 
-    /// Whether this command consumes stdin via the pipe mechanism.
+    /// Whether this command can consume stdin from a pipe.
+    ///
     /// When `true`, the pipeline writes stdin to `/tmp/.pipe_input` and
-    /// appends that path to the args.
+    /// appends that path as a trailing argument.  Commands that access
+    /// `ctx.stdin` directly (e.g. `tr`, `tee`) should return `false` and
+    /// read from `ctx.stdin` themselves.
     fn accepts_stdin(&self) -> bool {
         false
     }
 
     /// Execute the command with the given context.
+    ///
+    /// Return `Ok(output)` on success or `Err(message)` on failure.
+    /// The `&&` chaining mechanism stops on the first `Err`.
     fn execute(&self, ctx: &mut CommandContext) -> Result<String, String>;
+
+    // ---- Man page metadata (all have defaults) ----------------------------
+
+    /// Usage synopsis shown in `man` pages (e.g. `"ls [-l] [path]"`).
+    fn synopsis(&self) -> &'static str {
+        ""
+    }
+
+    /// Detailed description for `man` pages.
+    ///
+    /// Falls back to [`description()`] when empty.  Override this to
+    /// provide richer multi-line documentation.
+    fn man_description(&self) -> &'static str {
+        ""
+    }
+
+    /// Example command lines shown in `man` pages.
+    ///
+    /// Each entry is one example line (e.g. `"ls -l /home"`).
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
-/// Central registry of all available commands. Built once at shell init.
+/// Central registry of all available commands.
+///
+/// The registry is built once during shell initialisation and lives for the
+/// lifetime of the shell.  Commands are stored as trait objects (`Box<dyn
+/// Command>`) so that heterogeneous command structs can coexist in a single
+/// collection.
 pub struct Registry {
+    /// Dynamically-dispatched list of all registered commands.
     commands: Vec<Box<dyn Command>>,
 }
 
@@ -58,24 +118,32 @@ impl Default for Registry {
 }
 
 impl Registry {
-    /// Create a new registry with all built-in commands registered.
+    /// Create a new registry and register every built-in command.
+    ///
+    /// This is called once during [`Shell::new`](crate::shell::Shell::new).
     pub fn new() -> Self {
         let mut commands: Vec<Box<dyn Command>> = Vec::new();
         register_all(&mut commands);
         Registry { commands }
     }
 
-    /// Look up a command by name.
+    /// Look up a command by its name.
+    ///
+    /// Returns `None` if no command with that name is registered.
     pub fn get(&self, name: &str) -> Option<&dyn Command> {
         self.commands.iter().find(|c| c.name() == name).map(|c| &**c)
     }
 
-    /// All registered commands.
+    /// Return a slice of all registered commands.
+    ///
+    /// Used by the `help` command to enumerate every available command.
     pub fn all_commands(&self) -> &[Box<dyn Command>] {
         &self.commands
     }
 
-    /// Tab-completion candidates matching a prefix.
+    /// Return tab-completion candidates whose names start with `partial`.
+    ///
+    /// Used by the frontend's tab-completion logic.
     pub fn completions(&self, partial: &str) -> Vec<String> {
         self.commands
             .iter()
@@ -132,7 +200,14 @@ pub mod whoami;
 // Registration
 // ---------------------------------------------------------------------------
 
-/// Register all built-in commands into the provided vector.
+/// Register every built-in command into the provided vector.
+///
+/// Commands are grouped by category for readability.  The order here does
+/// **not** affect execution — only the order in which `help` lists them
+/// and tab-completion suggests them.
+///
+/// To add a new command, insert a `commands.push(Box::new(...))` line in
+/// the appropriate category section below.
 fn register_all(commands: &mut Vec<Box<dyn Command>>) {
     // Filesystem navigation
     commands.push(Box::new(ls::LsCommand));

@@ -1,6 +1,22 @@
+//! NexOS — WebAssembly entry point for the browser-based terminal.
+//!
+//! This crate is compiled to `wasm32-unknown-unknown` and loaded by the
+//! TypeScript frontend via `wasm-bindgen`. All functions annotated with
+//! `#[wasm_bindgen]` are exported to JavaScript as synchronous calls.
+//!
+//! # Architecture overview
+//!
+//! The global shell state is held in a `thread_local!` `RefCell<Option<Shell>>`.
+//! The frontend must call [`init`] (or [`init_with_username`]) exactly once
+//! before invoking any other function. After that, [`execute_command`] drives
+//! all command execution, while the getter functions expose prompt text,
+//! tab-completions, command history, and serialised VFS state.
+
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
+// Re-export the three core subsystems so downstream code can reference them
+// via `crate::command`, `crate::shell`, and `crate::vfs`.
 pub mod command;
 pub mod shell;
 pub mod vfs;
@@ -8,6 +24,15 @@ pub mod vfs;
 use shell::Shell;
 use vfs::Vfs;
 
+// ---------------------------------------------------------------------------
+// Global shell state
+// ---------------------------------------------------------------------------
+
+// The single, process-wide shell instance.
+//
+// Wrapped in `RefCell` for interior mutability (the WASM target is
+// single-threaded, so runtime borrow checks are sufficient). Starts as
+// `None` and is populated by `init` or `init_with_username`.
 thread_local! {
     static SHELL: RefCell<Option<Shell>> = const { RefCell::new(None) };
 }
