@@ -96,7 +96,7 @@ impl super::Command for TeeCommand {
     /// Entry point called by the shell dispatcher. Passes the mutable VFS,
     /// the raw stdin string, and args through to the standalone [`execute`].
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.stdin, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.stdin, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "echo text | tee [-a] file [file2 ...]" }
     fn man_description(&self) -> &'static str {

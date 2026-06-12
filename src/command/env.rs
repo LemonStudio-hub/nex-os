@@ -55,7 +55,7 @@ impl super::Command for EnvCommand {
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         // Dereference the mutable borrow to get an immutable reference,
         // since `env` only reads the environment and never modifies it.
-        execute(&*ctx.env_vars)
+        execute(&ctx.state.env_vars)
     }
     fn synopsis(&self) -> &'static str { "env" }
     fn man_description(&self) -> &'static str { "Display all environment variables currently defined in the shell session as KEY=VALUE pairs, one per line. Variables are sorted alphabetically for deterministic output. This is a read-only command; use export to set variables." }

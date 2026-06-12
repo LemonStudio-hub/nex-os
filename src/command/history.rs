@@ -71,7 +71,7 @@ impl super::Command for HistoryCommand {
 
     /// Execute the command, forwarding the shell's history slice.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.history)
+        execute(&ctx.state.history)
     }
     fn synopsis(&self) -> &'static str { "history" }
     fn man_description(&self) -> &'static str { "Display a numbered list of all commands entered during the current session. Each entry is prefixed with a sequential number starting at 1. Unlike real bash, this implementation does not support history deletion or re-execution." }

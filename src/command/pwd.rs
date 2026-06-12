@@ -58,7 +58,7 @@ impl super::Command for PwdCommand {
 
     /// Execute the command, forwarding the VFS from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs)
+        execute(&ctx.state.vfs)
     }
 
     fn synopsis(&self) -> &'static str { "pwd" }

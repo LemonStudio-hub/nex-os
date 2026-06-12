@@ -1,13 +1,21 @@
 //! Shell state management and top-level command execution.
 //!
-//! The [`Shell`] struct owns the VFS, command registry, environment variables,
-//! and command history.  It is the central coordinator that:
+//! This module defines two core types:
 //!
-//! 1. Receives raw input from the frontend.
-//! 2. Splits it by `&&` (sequential chaining, stop on first error).
-//! 3. Splits each segment by `|` (pipeline stages).
-//! 4. Extracts `>` / `>>` redirections.
-//! 5. Executes the pipeline, passing stdin between stages.
+//! - [`ShellState`] — serializable, owns all mutable data (VFS, history,
+//!   environment variables, identity).  Passed into and returned from every
+//!   operation, enabling stateless service design.
+//! - [`Service`] — stateless, holds only the immutable command [`Registry`].
+//!   All methods accept [`ShellState`] as input and return results alongside
+//!   the (potentially modified) state.
+//!
+//! # Execution flow
+//!
+//! 1. Receive raw input from the frontend.
+//! 2. Split by `&&` (sequential chaining, stop on first error).
+//! 3. Split each segment by `|` (pipeline stages).
+//! 4. Extract `>` / `>>` redirections.
+//! 5. Execute the pipeline, passing stdin between stages.
 //!
 //! Submodules:
 //! - [`dispatch`] — single-command execution via the registry.
@@ -18,14 +26,21 @@ mod pipeline;
 
 use crate::command::Registry;
 use crate::vfs::Vfs;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// The top-level shell state.
+// ---------------------------------------------------------------------------
+// ShellState — all mutable data, serializable for cross-Worker transfer
+// ---------------------------------------------------------------------------
+
+/// Serializable shell state.
 ///
-/// Holds everything needed to execute commands: the virtual file system,
-/// the command registry, environment variables, command history, and
-/// identity metadata (username / hostname) used in the prompt.
-pub struct Shell {
+/// Contains every piece of mutable data: the virtual file system, identity
+/// metadata, command history, and environment variables.  This struct is
+/// passed into and returned from every [`Service`] method, enabling
+/// stateless operation and parallel invocation by multiple Workers.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ShellState {
     /// The in-memory virtual file system.
     pub vfs: Vfs,
     /// The logged-in username (displayed in the prompt).
@@ -36,18 +51,15 @@ pub struct Shell {
     pub history: Vec<String>,
     /// Shell environment variables (e.g. `HOME`, `PATH`, `PWD`).
     pub env_vars: HashMap<String, String>,
-    /// Central registry of all available commands, built once at init.
-    registry: Registry,
 }
 
-impl Shell {
-    /// Create a new shell with default identity (`user@nexos`) and
-    /// populate standard environment variables (`HOME`, `PATH`, `PWD`, etc.).
+impl ShellState {
+    /// Create a fresh state with default identity (`user@nexos`) and
+    /// standard environment variables (`HOME`, `PATH`, `PWD`, etc.).
     pub fn new(vfs: Vfs) -> Self {
         let username = "user".to_string();
         let hostname = "nexos".to_string();
 
-        // Populate default environment variables
         let mut env_vars = HashMap::new();
         env_vars.insert("USER".to_string(), username.clone());
         env_vars.insert("HOSTNAME".to_string(), hostname.clone());
@@ -57,20 +69,32 @@ impl Shell {
         env_vars.insert("PWD".to_string(), "/".to_string());
         env_vars.insert("TERM".to_string(), "xterm-256color".to_string());
 
-        Shell {
+        ShellState {
             vfs,
             username,
             hostname,
             history: Vec::new(),
             env_vars,
-            registry: Registry::new(),
         }
+    }
+
+    /// Restore state from a persisted JSON snapshot, applying the given
+    /// username.  Returns `None` if deserialization fails.
+    pub fn from_state_json(json: &str, username: &str) -> Option<Self> {
+        Vfs::from_json(json).ok().map(|vfs| {
+            let mut state = Self::new(vfs);
+            state.username = username.to_string();
+            state
+                .env_vars
+                .insert("USER".to_string(), username.to_string());
+            state
+        })
     }
 
     /// Build the formatted prompt string with ANSI colour codes.
     ///
-    /// The prompt is displayed as `user@hostname:/cwd$ ` with green for the
-    /// identity, blue for the path, and a reset sequence at the end.
+    /// Displayed as `user@hostname:/cwd$ ` with green for the identity,
+    /// blue for the path, and a reset sequence at the end.
     pub fn get_prompt(&self) -> String {
         format!(
             "\x1b[1;32m{}@{}:\x1b[1;34m{}\x1b[0m$ ",
@@ -78,31 +102,51 @@ impl Shell {
         )
     }
 
-    /// Parse and execute a full command string.
+    /// Serialize the VFS to JSON for OPFS persistence.
+    pub fn to_json(&self) -> String {
+        self.vfs.to_json()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Service — stateless command executor
+// ---------------------------------------------------------------------------
+
+/// Stateless shell service.
+///
+/// Holds only the immutable command [`Registry`].  All operations accept a
+/// [`ShellState`] as input and return results alongside the (potentially
+/// modified) state.  Because the service carries no mutable data, it is safe
+/// to share across Workers — each Worker holds its own state independently.
+pub struct Service {
+    /// Central registry of all available commands, built once at init.
+    registry: Registry,
+}
+
+impl Service {
+    /// Create a new service with all built-in commands registered.
+    pub fn new() -> Self {
+        Service {
+            registry: Registry::new(),
+        }
+    }
+
+    /// Execute a full command string against the given state.
     ///
-    /// # Operator precedence (highest → lowest)
-    ///
-    /// 1. `|`  — pipe: within a single `&&` segment.
-    /// 2. `>`, `>>` — file redirection: within a single pipe stage.
-    /// 3. `&&` — sequential chaining: stop on the first error.
-    ///
-    /// # Behaviour
-    ///
-    /// - The raw input is appended to the command history.
-    /// - The `PWD` environment variable is updated to match `vfs.cwd`.
-    /// - On success the combined stdout of the pipeline is returned.
-    /// - On error the error message is returned and remaining `&&` segments
-    ///   are skipped.
-    pub fn execute(&mut self, input: &str) -> String {
+    /// Returns `(output, new_state)` — the command output and the modified
+    /// state.  See [`ShellState`] for details on what changes between the
+    /// input and output state.
+    pub fn execute_command(&self, state: &mut ShellState, input: &str) -> String {
         let input = input.trim();
         if input.is_empty() {
             return String::new();
         }
-        self.history.push(input.to_string());
+        state.history.push(input.to_string());
 
         // Update PWD env var to match current directory
-        self.env_vars
-            .insert("PWD".to_string(), self.vfs.cwd.clone());
+        state
+            .env_vars
+            .insert("PWD".to_string(), state.vfs.cwd.clone());
 
         // Step 1: Split by `&&` (sequential execution, stop on error)
         let segments: Vec<&str> = input
@@ -125,7 +169,7 @@ impl Shell {
             }
 
             // Run the pipeline; only the LAST stage honours redirection
-            match self.run_pipeline(&pipe) {
+            match self.run_pipeline(state, &pipe) {
                 Ok(result) => {
                     output.push_str(&result);
                 }
@@ -149,24 +193,26 @@ impl Shell {
     /// last stage redirects to a file (`>` or `>>`), the terminal output
     /// is empty — the content is written to the VFS file instead.
     fn run_pipeline(
-        &mut self,
+        &self,
+        state: &mut ShellState,
         pipeline: &[(String, Option<(String, bool)>)],
     ) -> Result<String, String> {
         let mut current_input = String::new();
 
         for (i, (cmd_part, redirect)) in pipeline.iter().enumerate() {
             let is_last = i == pipeline.len() - 1;
-            let result = self.execute_with_stdin(cmd_part, &current_input)?;
+            let result = self.execute_with_stdin(state, cmd_part, &current_input)?;
 
             if is_last {
                 // Last stage: handle redirection if present
                 if let Some((target, append)) = redirect {
                     let write_result = if *append {
-                        let existing = self.vfs.read_file(target).unwrap_or_default();
-                        self.vfs
+                        let existing = state.vfs.read_file(target).unwrap_or_default();
+                        state
+                            .vfs
                             .write_file(target, &format!("{}{}", existing, result))
                     } else {
-                        self.vfs.write_file(target, &result)
+                        state.vfs.write_file(target, &result)
                     };
                     write_result?;
                     // When redirecting to a file, produce no terminal output
@@ -181,15 +227,18 @@ impl Shell {
     }
 
     /// Get tab-completion candidates for the given partial input string.
-    ///
-    /// Delegates to the command registry, which matches against registered
-    /// command names.
-    pub fn get_completions(&self, partial: &str) -> Vec<String> {
+    pub fn get_completions(&self, _state: &ShellState, partial: &str) -> Vec<String> {
         self.registry.completions(partial)
     }
 
-    /// Return a reference to the command history list.
-    pub fn get_history(&self) -> &Vec<String> {
-        &self.history
+    /// Return the command history from the given state.
+    pub fn get_history(&self, state: &ShellState) -> Vec<String> {
+        state.history.clone()
+    }
+}
+
+impl Default for Service {
+    fn default() -> Self {
+        Self::new()
     }
 }

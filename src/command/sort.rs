@@ -106,7 +106,7 @@ impl super::Command for SortCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "sort [-r] file" }
     fn man_description(&self) -> &'static str {

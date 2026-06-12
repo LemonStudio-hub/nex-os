@@ -138,7 +138,7 @@ impl super::Command for MkdirCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args)
     }
 
     fn synopsis(&self) -> &'static str { "mkdir [-p] directory [directory2 ...]" }

@@ -55,7 +55,7 @@ impl super::Command for HostnameCommand {
 
     /// Execute the command, forwarding the hostname from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.hostname)
+        execute(&ctx.state.hostname)
     }
     fn synopsis(&self) -> &'static str { "hostname" }
     fn man_description(&self) -> &'static str { "Display the hostname of the virtual NexOS system. The hostname is configured during shell initialization and stored in the shell state." }

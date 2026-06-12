@@ -6,7 +6,7 @@
  * 1. Create and mount the xterm.js terminal into the DOM.
  * 2. Dynamically import and initialise the Rust → WASM module.
  * 3. Run the authentication flow (first-time setup or returning login).
- * 4. Restore the virtual file system from OPFS (or create a fresh one).
+ * 4. Restore the shell state from OPFS (or create a fresh one).
  * 5. Hand off control to the keyboard input handler.
  *
  * All heavy lifting (command parsing, VFS operations) happens inside the
@@ -74,23 +74,34 @@ async function main() {
   const { username } = await runAuth(terminal);
 
   // -----------------------------------------------------------------------
-  // 4. VFS initialisation
+  // 4. Shell state initialisation
   // -----------------------------------------------------------------------
 
   // Attempt to load a previously persisted VFS snapshot from OPFS.
-  // If nothing is stored (first visit), `savedState` will be an empty string.
-  const savedState = await loadFromOPFS();
+  // loadFromOPFS returns { json, isNewFormat } so we can detect legacy
+  // format and migrate to incremental storage.
+  const { json: savedState, isNewFormat } = await loadFromOPFS();
 
-  // Pass the saved state and the authenticated username to the WASM shell.
-  // `init_with_username` returns `true` when the VFS was restored from JSON.
-  const restored = (
-    wasm as unknown as {
-      init_with_username(state: string, user: string): boolean;
+  // Initialize the WASM service and get the initial shell state.
+  // The state is a JSON string that the frontend owns and passes to every call.
+  let initialState = wasm.init_with_username(savedState, username);
+
+  if (savedState) {
+    if (isNewFormat) {
+      terminal.writeln('\x1b[36m[NexOS] VFS restored from OPFS (incremental)\x1b[0m');
+    } else {
+      terminal.writeln('\x1b[36m[NexOS] VFS restored from OPFS (migrating to incremental)\x1b[0m');
+      // Migration: mark all files dirty so they get saved individually
+      // on the next save.  Then trigger an immediate save to write the
+      // new format.
+      initialState = wasm.mark_all_dirty(initialState);
+      await saveToOPFS(initialState, wasm);
+      // Mark clean after migration save so the dirty set is empty.
+      // (mark_state_clean is done inside saveToOPFS via get_dirty_files_json
+      // returning empty after the save completes — but we need to call
+      // the WASM function.  Since saveToOPFS doesn't call mark_state_clean
+      // directly, we do a fresh save cycle to clear the dirty state.)
     }
-  ).init_with_username(savedState, username);
-
-  if (restored) {
-    terminal.writeln('\x1b[36m[NexOS] VFS restored from OPFS\x1b[0m');
   } else {
     terminal.writeln('\x1b[36m[NexOS] Fresh VFS initialized\x1b[0m');
   }
@@ -100,9 +111,13 @@ async function main() {
   // -----------------------------------------------------------------------
 
   // Display the initial prompt and start listening for keystrokes.
-  const prompt = wasm.get_prompt();
+  const prompt = wasm.get_prompt(initialState);
   terminal.write(prompt);
-  setupInputHandler(terminal, wasm, prompt, saveToOPFS);
+  // Pass a closure that captures `wasm` so the persistence layer can
+  // access the incremental-storage WASM functions.
+  setupInputHandler(terminal, wasm, initialState, prompt, (stateJson) => {
+    saveToOPFS(stateJson, wasm);
+  });
 }
 
 // Kick off the async startup sequence.

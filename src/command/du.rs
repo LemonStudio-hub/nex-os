@@ -174,7 +174,7 @@ impl super::Command for DuCommand {
     fn name(&self) -> &'static str { "du" }
     fn description(&self) -> &'static str { "Estimate disk usage (-h human-readable, -s summary)" }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "du [-h] [-s] [path]" }
     fn man_description(&self) -> &'static str { "Estimate disk usage of files and directories by recursively walking the VFS tree. The -h flag displays sizes in human-readable format (K for kilobytes, M for megabytes). The -s flag shows only a summary total for the specified path rather than per-subdirectory breakdown." }

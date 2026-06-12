@@ -85,13 +85,11 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     for path in &files {
         let resolved = vfs.resolve_path(path)?;
-        let content = vfs.read_file(&resolved)?;
 
-        // Count lines by splitting on newlines. split_whitespace handles
-        // arbitrary whitespace for word boundaries. chars().count() gives
-        // the Unicode character count (not byte count), which is the
-        // behavior we want for this simulated environment.
-        let line_count = content.lines().count();
+        // Use file_line_count for efficient line counting from chunked
+        // content.  Word and char counts still need the full content.
+        let line_count = vfs.file_line_count(&resolved)?;
+        let content = vfs.read_file(&resolved)?;
         let word_count = content.split_whitespace().count();
         let char_count = content.chars().count();
 
@@ -153,7 +151,7 @@ impl super::Command for WcCommand {
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "wc [-l] [-w] [-c] file [file2 ...]" }
     fn man_description(&self) -> &'static str {

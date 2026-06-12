@@ -72,12 +72,11 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     let path = file_path.ok_or("head: missing file operand")?;
     let resolved = vfs.resolve_path(path)?;
-    let content = vfs.read_file(&resolved)?;
 
-    // Take at most `count` lines. If the file is shorter, `.take()` simply
-    // returns all available lines -- no error needed.
-    let lines: Vec<&str> = content.lines().take(count).collect();
-    Ok(format!("{}\n", lines.join("\n")))
+    // Use the efficient partial-read API — only the first `count` lines
+    // are extracted from the chunked content, avoiding a full read.
+    let output = vfs.read_file_lines(&resolved, 0, count)?;
+    Ok(format!("{}\n", output))
 }
 
 /// Unit struct implementing the [`super::Command`] trait for `head`.
@@ -92,7 +91,7 @@ impl super::Command for HeadCommand {
     fn description(&self) -> &'static str { "Display first N lines of a file (-n COUNT)" }
     fn accepts_stdin(&self) -> bool { true }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "head [-n COUNT] file" }
     fn man_description(&self) -> &'static str {

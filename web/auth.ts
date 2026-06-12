@@ -4,11 +4,14 @@
  * Handles two distinct flows:
  *
  * 1. **First-time setup** — the user picks a username and password.
- *    The password is hashed with SHA-256 via the Web Crypto API and
- *    persisted to OPFS alongside the username.
+ *    The password is hashed with Argon2id (random 16-byte salt, 64 MiB
+ *    memory, 3 iterations) and persisted to OPFS alongside the username.
  *
  * 2. **Returning login** — the user enters their password; the hash is
  *    compared against the stored value.
+ *
+ * Legacy SHA-256 hashes (from earlier versions) are transparently migrated
+ * to Argon2id on successful login.
  *
  * Credentials are stored in `user_config.json` inside the browser's
  * Origin Private File System (OPFS), which is scoped to the page's
@@ -18,6 +21,7 @@
  */
 
 import type { Terminal } from '@xterm/xterm';
+import { argon2id } from 'hash-wasm';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,8 +31,12 @@ import type { Terminal } from '@xterm/xterm';
 interface UserConfig {
   /** The user's chosen display name. */
   username: string;
-  /** Hex-encoded SHA-256 hash of the user's password. */
+  /** Hex-encoded password hash (Argon2id or legacy SHA-256). */
   passwordHash: string;
+  /** Base64-encoded random salt (16 bytes). Empty for legacy SHA-256 entries. */
+  passwordSalt: string;
+  /** Which algorithm produced `passwordHash`. */
+  hashAlgorithm: 'argon2id' | 'sha256';
 }
 
 // ---------------------------------------------------------------------------
@@ -75,15 +83,76 @@ async function saveUserConfig(config: UserConfig): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// SHA-256 hashing (Web Crypto API)
+// Argon2id password hashing
+// ---------------------------------------------------------------------------
+
+/** Argon2id parameters — tuned for browser environments. */
+const ARGON2_MEMORY_KB = 65536; // 64 MiB
+const ARGON2_ITERATIONS = 3;
+const ARGON2_PARALLELISM = 1;
+const ARGON2_HASH_LENGTH = 32; // bytes
+const SALT_LENGTH = 16; // bytes
+
+/**
+ * Hash a password with Argon2id using a cryptographically random salt.
+ *
+ * Returns the hex-encoded hash and base64-encoded salt.
+ */
+async function hashPassword(password: string): Promise<{ hash: string; salt: string }> {
+  const salt = new Uint8Array(SALT_LENGTH);
+  crypto.getRandomValues(salt);
+
+  const hash = await argon2id({
+    password,
+    salt,
+    parallelism: ARGON2_PARALLELISM,
+    iterations: ARGON2_ITERATIONS,
+    memorySize: ARGON2_MEMORY_KB,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'hex',
+  });
+
+  // Encode salt as base64 for JSON storage
+  const saltBase64 = btoa(String.fromCharCode(...salt));
+
+  return { hash, salt: saltBase64 };
+}
+
+/**
+ * Verify a password against a stored Argon2id hash and salt.
+ *
+ * Returns `true` if the password matches.
+ */
+async function verifyPassword(password: string, hash: string, saltBase64: string): Promise<boolean> {
+  // Decode base64 salt back to Uint8Array
+  const saltBytes = atob(saltBase64);
+  const salt = new Uint8Array(saltBytes.length);
+  for (let i = 0; i < saltBytes.length; i++) {
+    salt[i] = saltBytes.charCodeAt(i);
+  }
+
+  const computedHash = await argon2id({
+    password,
+    salt,
+    parallelism: ARGON2_PARALLELISM,
+    iterations: ARGON2_ITERATIONS,
+    memorySize: ARGON2_MEMORY_KB,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'hex',
+  });
+
+  return computedHash === hash;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy SHA-256 (used only for migrating old password hashes)
 // ---------------------------------------------------------------------------
 
 /**
  * Compute the SHA-256 hash of a UTF-8 string and return it as a lowercase
  * hex string.
  *
- * Uses the browser's native `crypto.subtle` implementation, which is
- * both fast and timing-safe.
+ * @deprecated Only used to verify legacy passwords before migrating to Argon2id.
  */
 async function sha256(input: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -285,9 +354,14 @@ export async function runAuth(terminal: Terminal): Promise<AuthResult> {
             break;
           }
 
-          // Passwords match — hash, persist, and resolve.
-          sha256(setupPassword).then((hash) => {
-            saveUserConfig({ username: setupUsername, passwordHash: hash });
+          // Passwords match — hash with Argon2id, persist, and resolve.
+          hashPassword(setupPassword).then(({ hash, salt }) => {
+            saveUserConfig({
+              username: setupUsername,
+              passwordHash: hash,
+              passwordSalt: salt,
+              hashAlgorithm: 'argon2id',
+            });
             terminal.writeln('');
             terminal.writeln(
               `\x1b[32mAccount created for \x1b[1m${setupUsername}\x1b[0m`,
@@ -303,18 +377,46 @@ export async function runAuth(terminal: Terminal): Promise<AuthResult> {
         // LOGIN_PASSWORD — verify the entered password against the hash
         // ============================================================
         case 'LOGIN_PASSWORD': {
-          sha256(value).then((hash) => {
-            if (hash === config!.passwordHash) {
-              terminal.writeln('');
-              terminal.writeln(`\x1b[32mWelcome back, ${config!.username}!\x1b[0m`);
-              handler.dispose();
-              resolve({ username: config!.username });
-            } else {
-              terminal.writeln('');
-              terminal.writeln('\x1b[31mIncorrect password.\x1b[0m');
-              writePrompt(terminal, 'Password:');
-            }
-          });
+          const cfg = config!;
+
+          if (cfg.hashAlgorithm === 'argon2id') {
+            // Modern path: Argon2id verification
+            verifyPassword(value, cfg.passwordHash, cfg.passwordSalt).then((match) => {
+              if (match) {
+                terminal.writeln('');
+                terminal.writeln(`\x1b[32mWelcome back, ${cfg.username}!\x1b[0m`);
+                handler.dispose();
+                resolve({ username: cfg.username });
+              } else {
+                terminal.writeln('');
+                terminal.writeln('\x1b[31mIncorrect password.\x1b[0m');
+                writePrompt(terminal, 'Password:');
+              }
+            });
+          } else {
+            // Legacy path: SHA-256 verification with transparent migration
+            sha256(value).then((hash) => {
+              if (hash === cfg.passwordHash) {
+                // Migrate to Argon2id silently
+                hashPassword(value).then(({ hash: newHash, salt }) => {
+                  saveUserConfig({
+                    username: cfg.username,
+                    passwordHash: newHash,
+                    passwordSalt: salt,
+                    hashAlgorithm: 'argon2id',
+                  });
+                  terminal.writeln('');
+                  terminal.writeln(`\x1b[32mWelcome back, ${cfg.username}!\x1b[0m`);
+                  handler.dispose();
+                  resolve({ username: cfg.username });
+                });
+              } else {
+                terminal.writeln('');
+                terminal.writeln('\x1b[31mIncorrect password.\x1b[0m');
+                writePrompt(terminal, 'Password:');
+              }
+            });
+          }
           break;
         }
       }

@@ -26,12 +26,12 @@ cd web && npm run build
 
 ### Run Rust unit tests
 ```bash
-cargo test
+cargo test --target x86_64-unknown-linux-gnu
 ```
 
 ### Run a single Rust test
 ```bash
-cargo test <test_name>
+cargo test --target x86_64-unknown-linux-gnu <test_name>
 ```
 
 ### Deploy (Cloudflare Pages)
@@ -46,21 +46,21 @@ npx wrangler pages deploy web/dist/ --project-name=nexos
 
 ### Data Flow
 1. User input → xterm.js → TypeScript frontend
-2. Frontend calls `execute_command(input)` via wasm-bindgen
-3. Rust `Shell::execute()` parses and dispatches commands
-4. Commands operate on the in-memory `Vfs` tree
-5. Output string returned to frontend, VFS serialized to JSON and saved to OPFS
+2. Frontend calls `execute_command(state_json, input)` via wasm-bindgen
+3. Rust `Service::execute_command()` parses and dispatches commands against the `ShellState`
+4. Commands operate on the in-memory `Vfs` tree within `ShellState`
+5. Output + updated state JSON returned to frontend, VFS serialized to OPFS
 
 ### Core Rust Modules (`src/`)
 
-- **`lib.rs`** — WASM entry point. Exports `init`, `init_with_username`, `execute_command`, `get_prompt`, `get_completions`, `get_history`, `get_state_json`. Holds global `Shell` in a `thread_local!` `RefCell`.
-- **`vfs/mod.rs`** — Re-exports `Vfs`, `FsNode`, `FileNode`, `DirNode`.
-- **`vfs/node.rs`** — Data types: `FsNode` enum (File/Directory), `FileNode`, `DirNode`.
-- **`vfs/tree.rs`** — `Vfs` struct with path resolution (handles `.`, `..`, `~`), file/directory CRUD, JSON serialization. All paths are absolute strings internally.
-- **`shell/mod.rs`** — `Shell` struct (Vfs + username + hostname + history + env_vars + Registry). Top-level `execute()` handles `&&` chaining and delegates to pipeline/dispatch.
+- **`lib.rs`** — WASM entry point. Exports 11 functions: `init`, `init_with_username`, `execute_command`, `get_prompt`, `get_completions`, `get_history`, `get_state_json`, `get_dirty_files_json`, `get_deleted_files_json`, `get_file_content`, `mark_all_dirty`, `get_tree_json`. Holds immutable `Service` in a `thread_local!` `RefCell`. All exports accept `state_json: &str` — the frontend owns and passes state.
+- **`vfs/mod.rs`** — Re-exports `Vfs`, `FsNode`, `FileNode`, `DirNode`, `ChunkedContent`.
+- **`vfs/node.rs`** — Data types: `FsNode` enum (File/Directory), `FileNode` (name + `ChunkedContent`), `DirNode` (name + HashMap children). `ChunkedContent` provides chunked string storage (64 KiB chunks, 4 KiB inline threshold) with custom serde supporting legacy plain-string and new chunked-object formats.
+- **`vfs/tree.rs`** — `Vfs` struct with path resolution (handles `.`, `..`, `~`), file/directory CRUD, dirty tracking (`dirty_files`/`deleted_files` HashSets, `serde(skip)`), partial-read methods (`read_file_lines`, `file_line_count`, `file_size`), `to_tree_json()` for skeleton-only serialization, and full JSON roundtrip. All paths are absolute strings internally.
+- **`shell/mod.rs`** — `ShellState` (serializable: Vfs + username + hostname + history + env_vars) and `Service` (stateless: Registry only). `Service::execute_command()` handles `&&` chaining and delegates to pipeline/dispatch.
 - **`shell/pipeline.rs`** — `split_pipe_stages()` (splits by `|` respecting quotes), `extract_redirect()` (extracts `>`/`>>` targets).
-- **`shell/dispatch.rs`** — `execute_with_stdin()` method on Shell. Looks up commands via the Registry and creates a `CommandContext` for execution.
-- **`command/mod.rs`** — `Command` trait, `CommandContext` struct, `Registry` struct. The trait defines `name()`, `description()`, `accepts_stdin()`, and `execute()`. The registry is built once at shell init.
+- **`shell/dispatch.rs`** — `Service::execute_with_stdin()` method. Looks up commands via the Registry and creates a `CommandContext` for execution.
+- **`command/mod.rs`** — `Command` trait (7 methods: `name()`, `description()`, `execute()` required; `accepts_stdin()`, `synopsis()`, `man_description()`, `examples()` with defaults), `CommandContext` struct, `Registry` struct. The registry is built once at service init.
 - **`command/*.rs`** — One file per command. Each exports a bare `execute()` function AND a struct implementing `Command` that delegates to it.
 
 ### Adding a New Command
@@ -73,23 +73,24 @@ The trait metadata (`name()`, `accepts_stdin()`) automatically handles tab compl
 
 ### Frontend (`web/`)
 
-- **`main.ts`** — Thin bootstrap. Imports modules, creates terminal, loads WASM, runs auth, initializes VFS, wires up input handler.
+- **`main.ts`** — Bootstrap. Creates terminal, loads WASM, runs auth, restores VFS from OPFS (with migration from legacy to incremental format), hands off to input handler.
 - **`terminal.ts`** — Terminal creation (`createTerminal()`), addon loading, resize handling (`setupResize()`).
-- **`persistence.ts`** — OPFS helpers (`loadFromOPFS()`, `saveToOPFS()`) for VFS state persistence.
-- **`input.ts`** — Keyboard input handler (`setupInputHandler()`). Manages input buffer, history, tab completion, command execution.
-- **`auth.ts`** — First-time setup vs. returning login flow. SHA-256 password hashing via Web Crypto API. Credentials stored in OPFS `user_config.json`.
+- **`persistence.ts`** — OPFS incremental persistence: `loadFromOPFS()` tries new `nexos_tree.json` + `nexos_files/` format, falls back to legacy `vfs_state.json`; `saveToOPFS()` writes only dirty files individually, deletes removed files, saves tree skeleton. Path encoding uses `btoa(encodeURIComponent(path))` with filesystem-safe character replacement.
+- **`input.ts`** — Keyboard input handler (`setupInputHandler()`). Manages input buffer, history, tab completion, command execution. Defines `WasmApi` interface matching all 11 WASM exports. Calls `onSaveState` callback after each command.
+- **`auth.ts`** — First-time setup vs. returning login flow. Argon2id password hashing (64 MiB memory, 3 iterations, 16-byte salt) via `hash-wasm`. Legacy SHA-256 hashes are transparently migrated to Argon2id on successful login. Credentials stored in OPFS `user_config.json`.
 - Vite config allows serving from `../pkg/` (the WASM bindings directory).
 
 ### Key Design Decisions
 
+- **Stateless Service + ShellState**: The `Service` holds only the immutable `Registry`. All mutable data lives in `ShellState` (Vfs, history, env_vars, identity). Every WASM export accepts `state_json: &str` and returns results alongside the updated state. This enables async execution and parallel Worker invocation — each Worker holds its own state independently.
 - **Command trait + Registry**: All commands implement `Command` with uniform `execute(&self, ctx: &mut CommandContext) -> Result<String, String>`. The registry replaces the monolithic match statement. Adding a command requires only 3 steps (create file, add mod, register).
 - Commands return `Result<String, String>` — `Ok` for success output, `Err` for error messages. The `&&` chain breaks on `Err`.
-- `CommandContext` bundles all shell state (`vfs`, `stdin`, `args`, `username`, `hostname`, `history`, `env_vars`). Commands borrow only what they need.
+- `CommandContext` bundles all shell state via `state: &mut ShellState` (Vfs, env_vars, history, identity) plus `stdin`, `args`, and `registry`. Commands access fields through `ctx.state.*`.
 - `accepts_stdin()` on the trait replaces the hardcoded `file_reading_commands` array. Commands like `tr` and `tee` access stdin directly via `ctx.stdin` and return `false`.
 - Pipe support: stdin from a prior stage is appended as a trailing argument to file-reading commands when no explicit file arg is given.
 - Redirection (`>`/`>>`) is only applied on the last stage of a pipeline.
 - The `clear` command returns ANSI escape `\x1b[2J\x1b[H` — the frontend interprets this as a screen clear.
-- VFS is serialized to JSON after every command execution for OPFS persistence.
+- Shell state is serialized to JSON after every command execution. OPFS persistence is incremental: dirty files are written individually to `nexos_files/`, deleted files are removed, and a tree skeleton (`nexos_tree.json`) is saved separately. This avoids rewriting the entire VFS on every command.
 - `chmod`/`chown` are simulated (no real permission enforcement).
 
 ## Toolchain

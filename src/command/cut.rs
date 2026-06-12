@@ -127,7 +127,7 @@ impl super::Command for CutCommand {
     fn description(&self) -> &'static str { "Extract fields from each line (-f FIELDS -d DELIM)" }
     fn accepts_stdin(&self) -> bool { true }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "cut -f FIELDS [-d DELIM] file" }
     fn man_description(&self) -> &'static str {

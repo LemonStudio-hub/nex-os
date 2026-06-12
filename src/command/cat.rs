@@ -81,7 +81,7 @@ impl super::Command for CatCommand {
     fn description(&self) -> &'static str { "Display file contents" }
     fn accepts_stdin(&self) -> bool { true }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "cat file [file2 ...]" }
     fn man_description(&self) -> &'static str {

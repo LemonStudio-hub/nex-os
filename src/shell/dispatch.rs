@@ -1,13 +1,13 @@
 //! Command dispatch via the registry.
 //!
-//! This module implements [`Shell::execute_with_stdin`], which is the final
+//! This module implements [`Service::execute_with_stdin`], which is the final
 //! step of command execution: tokenise the input, look up the command in
 //! the registry, build a [`CommandContext`], and call `execute`.
 
 use crate::command::CommandContext;
-use crate::shell::Shell;
+use crate::shell::{Service, ShellState};
 
-impl Shell {
+impl Service {
     /// Execute a single command string with optional stdin from a preceding
     /// pipe stage.
     ///
@@ -20,7 +20,12 @@ impl Shell {
     ///    that path to the argument list.  This lets file-reading commands
     ///    (cat, grep, wc, …) consume piped data transparently.
     /// 4. Build a [`CommandContext`] and call the command's `execute` method.
-    pub fn execute_with_stdin(&mut self, input: &str, stdin: &str) -> Result<String, String> {
+    pub fn execute_with_stdin(
+        &self,
+        state: &mut ShellState,
+        input: &str,
+        stdin: &str,
+    ) -> Result<String, String> {
         let tokens: Vec<&str> = input.split_whitespace().collect();
         if tokens.is_empty() {
             return Ok(String::new());
@@ -39,7 +44,7 @@ impl Shell {
         let temp_path;
         let effective_args: Vec<&str> = if !stdin.is_empty() && command.accepts_stdin() {
             temp_path = "/tmp/.pipe_input".to_string();
-            let _ = self.vfs.write_file(&temp_path, stdin);
+            let _ = state.vfs.write_file(&temp_path, stdin);
             let mut new_args: Vec<&str> = args.to_vec();
             new_args.push(&temp_path);
             new_args
@@ -48,13 +53,9 @@ impl Shell {
         };
 
         let mut ctx = CommandContext {
-            vfs: &mut self.vfs,
+            state,
             stdin,
             args: &effective_args,
-            username: &self.username,
-            hostname: &self.hostname,
-            history: &self.history,
-            env_vars: &mut self.env_vars,
             registry: &self.registry,
         };
 

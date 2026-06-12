@@ -6,13 +6,19 @@
 //!
 //! # Architecture overview
 //!
-//! The global shell state is held in a `thread_local!` `RefCell<Option<Shell>>`.
-//! The frontend must call [`init`] (or [`init_with_username`]) exactly once
-//! before invoking any other function. After that, [`execute_command`] drives
-//! all command execution, while the getter functions expose prompt text,
-//! tab-completions, command history, and serialised VFS state.
+//! The immutable command [`Service`] is stored in a `thread_local!` and
+//! shared across all calls.  Mutable shell state ([`ShellState`]) is
+//! serialised to JSON and passed into every operation — the caller owns
+//! the state and receives the updated version after each mutation.
+//!
+//! This stateless design enables:
+//! - **Async execution** — the frontend can `postMessage` state to a Worker.
+//! - **Parallel Workers** — each Worker holds its own state independently.
+//! - **Deterministic replay** — state snapshots can be stored and restored.
 
 use std::cell::RefCell;
+use std::panic::{self, AssertUnwindSafe};
+use std::sync::Once;
 use wasm_bindgen::prelude::*;
 
 // Re-export the three core subsystems so downstream code can reference them
@@ -21,110 +27,293 @@ pub mod command;
 pub mod shell;
 pub mod vfs;
 
-use shell::Shell;
+use shell::{Service, ShellState};
 use vfs::Vfs;
 
 // ---------------------------------------------------------------------------
-// Global shell state
+// Panic recovery
 // ---------------------------------------------------------------------------
 
-// The single, process-wide shell instance.
-//
-// Wrapped in `RefCell` for interior mutability (the WASM target is
-// single-threaded, so runtime borrow checks are sufficient). Starts as
-// `None` and is populated by `init` or `init_with_username`.
-thread_local! {
-    static SHELL: RefCell<Option<Shell>> = const { RefCell::new(None) };
+/// One-time initialisation for the panic hook.  The hook itself doesn't need
+/// to do anything special — `catch_unwind` extracts the payload.  This exists
+/// so that panics are caught rather than aborting the WASM module.
+static PANIC_HOOK: Once = Once::new();
+
+fn ensure_panic_hook() {
+    PANIC_HOOK.call_once(|| {
+        let _ = panic::take_hook(); // keep default behaviour (console error)
+        panic::set_hook(Box::new(|_info| {
+            // The message is extracted by catch_unwind below.
+        }));
+    });
 }
 
-/// Initialize the VFS and shell. If `state_json` is non-empty, attempts to
-/// restore from the provided JSON; otherwise creates a fresh default VFS.
-/// Returns `true` if restored from persisted state.
+/// Extract a human-readable string from a panic payload.
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown internal error".to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Global service (immutable — no borrow conflicts)
+// ---------------------------------------------------------------------------
+
+// The single, process-wide service instance.  The service holds only the
+// immutable command registry, so it is safe to borrow concurrently (though
+// the WASM target is single-threaded anyway).  Starts as `None` and is
+// populated by `init` or `init_with_username`.
+thread_local! {
+    static SERVICE: RefCell<Option<Service>> = const { RefCell::new(None) };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Run a closure with a reference to the service.
+///
+/// Returns the provided fallback if the service has not been initialized.
+fn with_service<R>(fallback: R, f: impl FnOnce(&Service) -> R) -> R {
+    SERVICE.with(|s| {
+        let borrow = s.borrow();
+        match borrow.as_ref() {
+            Some(service) => f(service),
+            None => fallback,
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
+// WASM exports — stateless API
+// ---------------------------------------------------------------------------
+
+/// Initialize the service and shell state.
+///
+/// If `state_json` is non-empty, attempts to restore the VFS from the
+/// provided JSON; otherwise creates a fresh default VFS.
+///
+/// Returns the initial shell state as a JSON string.  The frontend must
+/// store this string and pass it to every subsequent call.
 #[wasm_bindgen]
-pub fn init(state_json: &str) -> bool {
+pub fn init(state_json: &str) -> String {
     init_with_username(state_json, "user")
 }
 
-/// Initialize with a custom username. Used after login when the user has set
-/// their own username. Returns `true` if VFS was restored from persisted state.
+/// Initialize with a custom username.
+///
+/// Used after login when the user has set their own username.  Returns the
+/// initial shell state as a JSON string.
 #[wasm_bindgen]
-pub fn init_with_username(state_json: &str, username: &str) -> bool {
-    let (vfs, restored) = if state_json.is_empty() {
-        (Vfs::new(), false)
+pub fn init_with_username(state_json: &str, username: &str) -> String {
+    // Build the service (immutable registry).
+    let service = Service::new();
+
+    // Build the initial state.
+    let state = if state_json.is_empty() {
+        ShellState::new(Vfs::new())
     } else {
-        match Vfs::from_json(state_json) {
-            Ok(v) => (v, true),
-            Err(_) => (Vfs::new(), false),
+        ShellState::from_state_json(state_json, username).unwrap_or_else(|| {
+            let mut s = ShellState::new(Vfs::new());
+            s.username = username.to_string();
+            s
+        })
+    };
+
+    // Store the service for future calls.
+    SERVICE.with(|s| {
+        *s.borrow_mut() = Some(service);
+    });
+
+    // Serialize the full state so the frontend can store and pass it back.
+    serde_json::to_string(&state).unwrap_or_default()
+}
+
+/// Execute a command string against the given state.
+///
+/// `state_json` is the current shell state (as returned by a previous call
+/// to `init` or `execute_command`).  `input` is the raw command line.
+///
+/// Returns a JSON object: `{"output": "...", "state": "..."}` where
+/// `output` is the command's stdout/stderr and `state` is the updated
+/// shell state.  The frontend must parse this and store the new state.
+///
+/// If a panic occurs during execution, the error is caught and returned as a
+/// formatted error message instead of crashing the WASM module.
+#[wasm_bindgen]
+pub fn execute_command(state_json: &str, input: &str) -> String {
+    ensure_panic_hook();
+
+    // Deserialize the state.
+    let mut state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => {
+            return serde_json::json!({
+                "output": "Error: invalid shell state.\n",
+                "state": state_json
+            })
+            .to_string();
         }
     };
 
-    SHELL.with(|s| {
-        let mut shell = Shell::new(vfs);
-        shell.username = username.to_string();
-        *s.borrow_mut() = Some(shell);
-    });
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        with_service(String::new(), |service| {
+            service.execute_command(&mut state, input)
+        })
+    }));
 
-    restored
+    let output = match result {
+        Ok(output) => output,
+        Err(payload) => {
+            let msg = panic_message(&payload);
+            format!("\x1b[1;31mNexOS: internal error — {}\x1b[0m\n", msg)
+        }
+    };
+
+    // Return both the output and the updated state.
+    let state_out = serde_json::to_string(&state).unwrap_or_default();
+    serde_json::json!({
+        "output": output,
+        "state": state_out
+    })
+    .to_string()
 }
 
-/// Execute a command and return the output text.
-/// Automatically saves VFS state after execution (available via `get_state_json()`).
+/// Get the current prompt string (with ANSI colour codes).
+///
+/// `state_json` is the current shell state.  Returns the formatted prompt.
+/// Returns `"$ "` on invalid state or panic.
 #[wasm_bindgen]
-pub fn execute_command(input: &str) -> String {
-    SHELL.with(|s| {
-        let mut borrow = s.borrow_mut();
-        match borrow.as_mut() {
-            Some(shell) => shell.execute(input),
-            None => "Error: shell not initialized. Call init() first.\n".to_string(),
-        }
-    })
-}
-
-/// Get the current prompt string (with ANSI color codes).
-#[wasm_bindgen]
-pub fn get_prompt() -> String {
-    SHELL.with(|s| {
-        let borrow = s.borrow();
-        match borrow.as_ref() {
-            Some(shell) => shell.get_prompt(),
-            None => "$ ".to_string(),
-        }
-    })
+pub fn get_prompt(state_json: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return "$ ".to_string(),
+    };
+    let result = panic::catch_unwind(AssertUnwindSafe(|| state.get_prompt()));
+    result.unwrap_or_else(|_| "$ ".to_string())
 }
 
 /// Get tab completion candidates for the given partial input.
+///
+/// `state_json` is the current shell state.  Returns matching command names.
+/// Returns an empty list on invalid state or panic.
 #[wasm_bindgen]
-pub fn get_completions(partial: &str) -> Vec<String> {
-    SHELL.with(|s| {
-        let borrow = s.borrow();
-        match borrow.as_ref() {
-            Some(shell) => shell.get_completions(partial),
-            None => vec![],
-        }
-    })
+pub fn get_completions(state_json: &str, partial: &str) -> Vec<String> {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        with_service(vec![], |service| service.get_completions(&state, partial))
+    }));
+    result.unwrap_or_default()
 }
 
-/// Get the command history.
+/// Get the command history from the given state.
+///
+/// Returns an empty list on invalid state or panic.
 #[wasm_bindgen]
-pub fn get_history() -> Vec<String> {
-    SHELL.with(|s| {
-        let borrow = s.borrow();
-        match borrow.as_ref() {
-            Some(shell) => shell.get_history().clone(),
-            None => vec![],
-        }
-    })
+pub fn get_history(state_json: &str) -> Vec<String> {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        with_service(vec![], |service| service.get_history(&state))
+    }));
+    result.unwrap_or_default()
 }
 
-/// Serialize the current VFS state to JSON for OPFS persistence.
-/// Returns empty string if shell is not initialized.
+/// Serialize the VFS from the given state to JSON for OPFS persistence.
+///
+/// Returns the VFS JSON, or an empty string if deserialization fails.
+/// This is a convenience alias — the frontend could also extract the VFS
+/// from the full state JSON directly.
 #[wasm_bindgen]
-pub fn get_state_json() -> String {
-    SHELL.with(|s| {
-        let borrow = s.borrow();
-        match borrow.as_ref() {
-            Some(shell) => shell.vfs.to_json(),
-            None => String::new(),
-        }
-    })
+pub fn get_state_json(state_json: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+    state.to_json()
+}
+
+/// Get the list of dirty (modified/created) file paths as a JSON array.
+///
+/// Returns `"[]"` if deserialization fails.
+#[wasm_bindgen]
+pub fn get_dirty_files_json(state_json: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return "[]".to_string(),
+    };
+    serde_json::to_string(&state.vfs.get_dirty_files()).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Get the list of deleted file paths as a JSON array.
+///
+/// Returns `"[]"` if deserialization fails.
+#[wasm_bindgen]
+pub fn get_deleted_files_json(state_json: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return "[]".to_string(),
+    };
+    serde_json::to_string(&state.vfs.get_deleted_files()).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Get the content of a single file from the given state.
+///
+/// Returns the file content as a plain string, or an empty string if the
+/// file does not exist or deserialization fails.
+#[wasm_bindgen]
+pub fn get_file_content(state_json: &str, path: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+    state.vfs.read_file(path).unwrap_or_default()
+}
+
+/// Mark all files in the state as dirty (used during migration from the
+/// legacy single-file persistence format).
+///
+/// Returns the updated state JSON, or the input unchanged on error.
+#[wasm_bindgen]
+pub fn mark_all_dirty(state_json: &str) -> String {
+    ensure_panic_hook();
+    let mut state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return state_json.to_string(),
+    };
+    let paths = state.vfs.collect_all_file_paths();
+    for path in paths {
+        state.vfs.mark_dirty(&path);
+    }
+    serde_json::to_string(&state).unwrap_or_else(|_| state_json.to_string())
+}
+
+/// Serialize the VFS tree structure with empty file contents.
+///
+/// Used for incremental storage — the tree skeleton is saved separately
+/// from individual file contents.  Returns empty string on error.
+#[wasm_bindgen]
+pub fn get_tree_json(state_json: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+    state.vfs.to_tree_json()
 }

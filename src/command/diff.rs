@@ -179,7 +179,7 @@ impl super::Command for DiffCommand {
     fn name(&self) -> &'static str { "diff" }
     fn description(&self) -> &'static str { "Compare two files line by line" }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "diff file1 file2" }
     fn man_description(&self) -> &'static str { "Compare two files line by line using a Longest Common Subsequence (LCS) algorithm. Output is in a simplified unified-diff format showing added and removed lines. Identical files produce no output." }

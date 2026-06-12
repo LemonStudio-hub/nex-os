@@ -126,7 +126,7 @@ impl super::Command for GrepCommand {
     fn description(&self) -> &'static str { "Search for patterns in files (-i case-insensitive, -n line numbers)" }
     fn accepts_stdin(&self) -> bool { true }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "grep [-i] [-n] pattern file [file2 ...]" }
     fn man_description(&self) -> &'static str {

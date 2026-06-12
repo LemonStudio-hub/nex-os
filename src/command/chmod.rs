@@ -120,7 +120,7 @@ impl super::Command for ChmodCommand {
     fn name(&self) -> &'static str { "chmod" }
     fn description(&self) -> &'static str { "Change file permissions (octal or symbolic)" }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "chmod mode file [file2 ...]" }
     fn man_description(&self) -> &'static str { "Change file permissions (simulated). Accepts octal modes (e.g. 755, 0644) or symbolic modes (e.g. +x, -w, u+r, a+x). Since the VFS has no real permission enforcement, the command validates the mode and checks that files exist but does not persist permission bits." }

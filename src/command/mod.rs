@@ -14,8 +14,7 @@
 //! The trait's [`Command::name`] and [`Command::accepts_stdin`] methods
 //! automatically handle tab completion and pipe stdin routing.
 
-use crate::vfs::Vfs;
-use std::collections::HashMap;
+use crate::shell::ShellState;
 
 // ---------------------------------------------------------------------------
 // Command trait
@@ -23,24 +22,17 @@ use std::collections::HashMap;
 
 /// Execution context passed to every command.
 ///
-/// Commands borrow only the fields they need — unused fields are silently
-/// ignored by the compiler.  The lifetime `'a` ties all references to the
-/// shell's own lifetime, preventing dangling pointers.
+/// Commands access all mutable state through [`state`](CommandContext::state)
+/// and read-only registry through [`registry`](CommandContext::registry).
+/// The lifetime `'a` ties all references to the caller's own lifetime,
+/// preventing dangling pointers.
 pub struct CommandContext<'a> {
-    /// Mutable reference to the virtual file system.
-    pub vfs: &'a mut Vfs,
+    /// Mutable reference to the full shell state (VFS, env_vars, history, identity).
+    pub state: &'a mut ShellState,
     /// Stdin content from the preceding pipe stage (empty string if none).
     pub stdin: &'a str,
     /// Command-line arguments (tokens after the command name).
     pub args: &'a [&'a str],
-    /// The logged-in username.
-    pub username: &'a str,
-    /// The machine hostname.
-    pub hostname: &'a str,
-    /// The full command history (read-only).
-    pub history: &'a [String],
-    /// Mutable reference to the shell's environment variables.
-    pub env_vars: &'a mut HashMap<String, String>,
     /// Reference to the command registry (for introspection by `man`, `help`).
     pub registry: &'a Registry,
 }
@@ -120,7 +112,7 @@ impl Default for Registry {
 impl Registry {
     /// Create a new registry and register every built-in command.
     ///
-    /// This is called once during [`Shell::new`](crate::shell::Shell::new).
+    /// This is called once during [`Service::new`](crate::shell::Service::new).
     pub fn new() -> Self {
         let mut commands: Vec<Box<dyn Command>> = Vec::new();
         register_all(&mut commands);

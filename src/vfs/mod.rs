@@ -21,5 +21,5 @@ mod tree;
 
 // Re-export the public types so consumers can write `use crate::vfs::Vfs`
 // instead of `use crate::vfs::tree::Vfs`.
-pub use node::{DirNode, FileNode, FsNode};
+pub use node::{ChunkedContent, DirNode, FileNode, FsNode};
 pub use tree::Vfs;

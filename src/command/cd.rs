@@ -73,7 +73,7 @@ impl super::Command for CdCommand {
     fn name(&self) -> &'static str { "cd" }
     fn description(&self) -> &'static str { "Change the current directory" }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args)
     }
 
     fn synopsis(&self) -> &'static str { "cd [path]" }

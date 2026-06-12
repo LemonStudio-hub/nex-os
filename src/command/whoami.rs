@@ -54,7 +54,7 @@ impl super::Command for WhoamiCommand {
     /// from the [`super::CommandContext`] and delegates to the standalone
     /// [`execute`] function.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.username)
+        execute(&ctx.state.username)
     }
     fn synopsis(&self) -> &'static str { "whoami" }
     fn man_description(&self) -> &'static str { "Display the username of the currently logged-in user. The username is set during the initial authentication flow and stored in the shell state." }

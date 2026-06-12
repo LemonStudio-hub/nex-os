@@ -119,7 +119,7 @@ impl super::Command for LnCommand {
 
     /// Execute the command, forwarding the VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args)
     }
 
     fn synopsis(&self) -> &'static str { "ln [-s] target link_name" }

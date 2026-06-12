@@ -72,19 +72,13 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     let path = file_path.ok_or("tail: missing file operand")?;
     let resolved = vfs.resolve_path(path)?;
-    let content = vfs.read_file(&resolved)?;
 
-    // Collect all lines so we can calculate the skip offset. We skip
-    // `total_lines - count` lines to keep only the last `count` lines.
-    let all_lines: Vec<&str> = content.lines().collect();
-    let skip = if all_lines.len() > count {
-        all_lines.len() - count
-    } else {
-        // File is shorter than the requested count -- return everything.
-        0
-    };
-    let lines: Vec<&str> = all_lines.into_iter().skip(skip).collect();
-    Ok(format!("{}\n", lines.join("\n")))
+    // Use file_line_count to determine the skip offset, then read only the
+    // trailing lines via the efficient partial-read API.
+    let total = vfs.file_line_count(&resolved)?;
+    let start = if total > count { total - count } else { 0 };
+    let output = vfs.read_file_lines(&resolved, start, count)?;
+    Ok(format!("{}\n", output))
 }
 
 /// Command struct implementing the [`super::Command`] trait for `tail`.
@@ -106,7 +100,7 @@ impl super::Command for TailCommand {
     /// Entry point called by the shell dispatcher. Extracts the VFS and args
     /// from the shared [`super::CommandContext`].
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args)
     }
     fn synopsis(&self) -> &'static str { "tail [-n COUNT] file" }
     fn man_description(&self) -> &'static str {

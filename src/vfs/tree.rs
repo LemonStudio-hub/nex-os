@@ -15,9 +15,9 @@
 //! execution.  The frontend writes that JSON to the browser's Origin Private
 //! File System (OPFS) so that the user's files survive page reloads.
 
-use super::node::{DirNode, FileNode, FsNode};
+use super::node::{ChunkedContent, DirNode, FileNode, FsNode};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // Pure helper functions (no VFS state access)
@@ -75,6 +75,12 @@ pub struct Vfs {
     pub root: DirNode,
     /// Absolute path of the current working directory (e.g. `"/home/user"`).
     pub cwd: String,
+    /// Paths of files modified or created since the last save.
+    #[serde(skip)]
+    dirty_files: HashSet<String>,
+    /// Paths of files deleted since the last save.
+    #[serde(skip)]
+    deleted_files: HashSet<String>,
 }
 
 impl Default for Vfs {
@@ -117,6 +123,8 @@ impl Vfs {
         Vfs {
             root,
             cwd: "/".to_string(),
+            dirty_files: HashSet::new(),
+            deleted_files: HashSet::new(),
         }
     }
 
@@ -153,6 +161,11 @@ impl Vfs {
     /// does **not** guarantee the target exists — callers should check with
     /// [`exists`] or [`is_dir`] as needed.
     pub fn resolve_path(&self, path: &str) -> Result<String, String> {
+        // Reject null bytes to prevent injection attacks
+        if path.contains('\0') {
+            return Err("path contains null byte".to_string());
+        }
+
         // ~ expansion
         let expanded: String;
         let working_path = if let Some(rest) = path.strip_prefix('~') {
@@ -302,9 +315,10 @@ impl Vfs {
             name.clone(),
             FsNode::File(FileNode {
                 name,
-                content: String::new(),
+                content: ChunkedContent::new(),
             }),
         );
+        self.mark_dirty(path);
         Ok(String::new())
     }
 
@@ -351,12 +365,24 @@ impl Vfs {
             }
         }
 
-        parent.children.remove(&name).ok_or_else(|| {
+        // Collect file paths for dirty tracking before removing.
+        let removed = parent.children.remove(&name).ok_or_else(|| {
             format!(
                 "rm: cannot remove '{}': No such file or directory",
                 path_display_name(path)
             )
         })?;
+
+        // Mark deleted files for incremental persistence.
+        match removed {
+            FsNode::File(_) => {
+                self.mark_deleted(path);
+            }
+            FsNode::Directory(dir) => {
+                self.mark_deleted_recursive(&path, &dir);
+            }
+        }
+
         Ok(String::new())
     }
 
@@ -365,7 +391,7 @@ impl Vfs {
     /// Returns `Err` if the path does not exist or points to a directory.
     pub fn read_file(&self, path: &str) -> Result<String, String> {
         match self.get_node_at(path) {
-            Some(FsNode::File(f)) => Ok(f.content.clone()),
+            Some(FsNode::File(f)) => Ok(f.content.to_string()),
             Some(FsNode::Directory(_)) => {
                 Err(format!("cat: {}: Is a directory", path_display_name(path)))
             }
@@ -385,7 +411,8 @@ impl Vfs {
     pub fn write_file(&mut self, path: &str, content: &str) -> Result<String, String> {
         // If file already exists, update in place
         if let Some(FsNode::File(f)) = self.get_node_at_mut(path) {
-            f.content = content.to_string();
+            f.content = ChunkedContent::from_str(content);
+            self.mark_dirty(path);
             return Ok(String::new());
         }
 
@@ -402,9 +429,10 @@ impl Vfs {
             name.clone(),
             FsNode::File(FileNode {
                 name,
-                content: content.to_string(),
+                content: ChunkedContent::from_str(content),
             }),
         );
+        self.mark_dirty(path);
         Ok(String::new())
     }
 
@@ -466,6 +494,7 @@ impl Vfs {
         parent
             .children
             .insert(path_display_name(&actual_dst).to_string(), new_node);
+        self.mark_dirty(&actual_dst);
         Ok(String::new())
     }
 
@@ -482,9 +511,152 @@ impl Vfs {
         // Remove the original – need to handle directory removal without -r check
         let (parent_path, name) = self.split_parent_name(src)?;
         if let Some(parent) = self.get_dir_mut(&parent_path) {
-            parent.children.remove(&name);
+            if let Some(removed) = parent.children.remove(&name) {
+                match removed {
+                    FsNode::File(_) => self.mark_deleted(src),
+                    FsNode::Directory(dir) => self.mark_deleted_recursive(src, &dir),
+                }
+            }
         }
         Ok(String::new())
+    }
+
+    // ---- Dirty tracking ------------------------------------------------------
+
+    /// Mark a file path as modified or created since the last save.
+    pub fn mark_dirty(&mut self, path: &str) {
+        self.dirty_files.insert(path.to_string());
+    }
+
+    /// Mark a file path as deleted since the last save.
+    fn mark_deleted(&mut self, path: &str) {
+        self.deleted_files.insert(path.to_string());
+        self.dirty_files.remove(path);
+    }
+
+    /// Recursively mark all files under a directory as deleted.
+    fn mark_deleted_recursive(&mut self, dir_path: &str, dir: &DirNode) {
+        for (name, node) in &dir.children {
+            let child_path = Self::child_path(dir_path, name);
+            match node {
+                FsNode::File(_) => {
+                    self.deleted_files.insert(child_path);
+                }
+                FsNode::Directory(d) => {
+                    self.mark_deleted_recursive(&child_path, d);
+                }
+            }
+        }
+    }
+
+    /// Return all paths that have been modified or created since the last save.
+    pub fn get_dirty_files(&self) -> Vec<String> {
+        self.dirty_files.iter().cloned().collect()
+    }
+
+    /// Return all paths that have been deleted since the last save.
+    pub fn get_deleted_files(&self) -> Vec<String> {
+        self.deleted_files.iter().cloned().collect()
+    }
+
+    /// Clear the dirty and deleted sets (called after a successful save).
+    pub fn mark_clean(&mut self) {
+        self.dirty_files.clear();
+        self.deleted_files.clear();
+    }
+
+    /// Collect all file paths under a directory (for migration / mark_all_dirty).
+    pub fn collect_all_file_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        self.collect_file_paths_recursive(&self.root, "/", &mut paths);
+        paths
+    }
+
+    fn collect_file_paths_recursive(&self, dir: &DirNode, dir_path: &str, paths: &mut Vec<String>) {
+        for (name, node) in &dir.children {
+            let child_path = Self::child_path(dir_path, name);
+            match node {
+                FsNode::File(_) => paths.push(child_path),
+                FsNode::Directory(d) => self.collect_file_paths_recursive(d, &child_path, paths),
+            }
+        }
+    }
+
+    // ---- Partial-read methods ------------------------------------------------
+
+    /// Read a range of lines from a file.  Returns lines joined by `\n`.
+    ///
+    /// More efficient than [`read_file`] for large files when only a range of
+    /// lines is needed (e.g. `head`, `tail`).
+    pub fn read_file_lines(
+        &self,
+        path: &str,
+        start_line: usize,
+        count: usize,
+    ) -> Result<String, String> {
+        match self.get_node_at(path) {
+            Some(FsNode::File(f)) => Ok(f.read_lines(start_line, count)),
+            Some(FsNode::Directory(_)) => Err(format!(
+                "read_file_lines: {}: Is a directory",
+                path_display_name(path)
+            )),
+            None => Err(format!(
+                "read_file_lines: {}: No such file or directory",
+                path_display_name(path)
+            )),
+        }
+    }
+
+    /// Return the number of lines in a file without reading the full content
+    /// into a single `String`.
+    pub fn file_line_count(&self, path: &str) -> Result<usize, String> {
+        match self.get_node_at(path) {
+            Some(FsNode::File(f)) => Ok(f.line_count()),
+            Some(FsNode::Directory(_)) => Err(format!(
+                "file_line_count: {}: Is a directory",
+                path_display_name(path)
+            )),
+            None => Err(format!(
+                "file_line_count: {}: No such file or directory",
+                path_display_name(path)
+            )),
+        }
+    }
+
+    /// Return the byte size of a file's content.
+    pub fn file_size(&self, path: &str) -> Result<usize, String> {
+        match self.get_node_at(path) {
+            Some(FsNode::File(f)) => Ok(f.content.len()),
+            Some(FsNode::Directory(_)) => Err(format!(
+                "file_size: {}: Is a directory",
+                path_display_name(path)
+            )),
+            None => Err(format!(
+                "file_size: {}: No such file or directory",
+                path_display_name(path)
+            )),
+        }
+    }
+
+    // ---- Tree-only JSON (for incremental persistence) -----------------------
+
+    /// Serialise the VFS tree with empty file contents (tree structure only).
+    ///
+    /// Used by the incremental storage system — file contents are saved
+    /// separately so that only changed files need to be written.
+    pub fn to_tree_json(&self) -> String {
+        let mut clone = self.clone();
+        Self::clear_contents_recursive(&mut clone.root);
+        serde_json::to_string(&clone).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e))
+    }
+
+    fn clear_contents_recursive(dir: &mut DirNode) {
+        for node in dir.children.values_mut() {
+            match node {
+                FsNode::File(f) => f.content = ChunkedContent::new(),
+                FsNode::Directory(d) => Self::clear_contents_recursive(d),
+            }
+        }
     }
 
     // ---- Private helpers -----------------------------------------------------
@@ -893,5 +1065,195 @@ mod tests {
         // Trying to resolve a path that goes through a file should fail
         // at the is_dir / get_dir level, not resolve_path (which is pure string manipulation)
         assert!(!vfs.is_dir("/home/user/f.txt/sub"));
+    }
+
+    /// Paths containing null bytes should be rejected to prevent injection attacks.
+    #[test]
+    fn resolve_path_rejects_null_bytes() {
+        let vfs = Vfs::new();
+        assert!(vfs.resolve_path("\0etc/passwd").is_err());
+        assert!(vfs.resolve_path("/home/user/\0hidden").is_err());
+        assert!(vfs.resolve_path("file\0.txt").is_err());
+    }
+
+    // -- Dirty tracking -------------------------------------------------------
+
+    #[test]
+    fn write_file_marks_dirty() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "data").unwrap();
+        assert!(vfs.get_dirty_files().contains(&"/home/user/f.txt".to_string()));
+    }
+
+    #[test]
+    fn touch_marks_dirty() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/f.txt").unwrap();
+        assert!(vfs.get_dirty_files().contains(&"/home/user/f.txt".to_string()));
+    }
+
+    #[test]
+    fn rm_marks_deleted() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "data").unwrap();
+        vfs.mark_clean(); // clear dirty from write
+        vfs.rm("/home/user/f.txt").unwrap();
+        assert!(vfs.get_deleted_files().contains(&"/home/user/f.txt".to_string()));
+    }
+
+    #[test]
+    fn rm_recursive_marks_all_deleted() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("/home/user/dir").unwrap();
+        vfs.write_file("/home/user/dir/a.txt", "a").unwrap();
+        vfs.write_file("/home/user/dir/b.txt", "b").unwrap();
+        vfs.mark_clean();
+        vfs.rm_recursive("/home/user/dir").unwrap();
+        let deleted = vfs.get_deleted_files();
+        assert!(deleted.contains(&"/home/user/dir/a.txt".to_string()));
+        assert!(deleted.contains(&"/home/user/dir/b.txt".to_string()));
+    }
+
+    #[test]
+    fn cp_marks_destination_dirty() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/src.txt", "data").unwrap();
+        vfs.mark_clean();
+        vfs.cp("/home/user/src.txt", "/tmp/dst.txt").unwrap();
+        assert!(vfs.get_dirty_files().contains(&"/tmp/dst.txt".to_string()));
+    }
+
+    #[test]
+    fn mv_marks_dirty_and_deleted() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/src.txt", "data").unwrap();
+        vfs.mark_clean();
+        vfs.mv("/home/user/src.txt", "/tmp/moved.txt").unwrap();
+        assert!(vfs.get_dirty_files().contains(&"/tmp/moved.txt".to_string()));
+        assert!(vfs.get_deleted_files().contains(&"/home/user/src.txt".to_string()));
+    }
+
+    #[test]
+    fn mark_clean_clears_all() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "data").unwrap();
+        vfs.rm("/home/user/f.txt").unwrap();
+        assert!(!vfs.get_dirty_files().is_empty() || !vfs.get_deleted_files().is_empty());
+        vfs.mark_clean();
+        assert!(vfs.get_dirty_files().is_empty());
+        assert!(vfs.get_deleted_files().is_empty());
+    }
+
+    #[test]
+    fn collect_all_file_paths_finds_files() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/a.txt", "a").unwrap();
+        vfs.write_file("/home/user/b.txt", "b").unwrap();
+        vfs.mkdir("/home/user/sub").unwrap();
+        vfs.write_file("/home/user/sub/c.txt", "c").unwrap();
+        let paths = vfs.collect_all_file_paths();
+        assert!(paths.contains(&"/home/user/a.txt".to_string()));
+        assert!(paths.contains(&"/home/user/b.txt".to_string()));
+        assert!(paths.contains(&"/home/user/sub/c.txt".to_string()));
+    }
+
+    // -- Partial-read methods -------------------------------------------------
+
+    #[test]
+    fn read_file_lines_basic() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "a\nb\nc\nd\ne").unwrap();
+        let result = vfs.read_file_lines("/home/user/f.txt", 0, 3).unwrap();
+        assert_eq!(result, "a\nb\nc");
+    }
+
+    #[test]
+    fn read_file_lines_with_offset() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "a\nb\nc\nd\ne").unwrap();
+        let result = vfs.read_file_lines("/home/user/f.txt", 2, 2).unwrap();
+        assert_eq!(result, "c\nd");
+    }
+
+    #[test]
+    fn read_file_lines_past_end() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "a\nb").unwrap();
+        let result = vfs.read_file_lines("/home/user/f.txt", 0, 100).unwrap();
+        assert_eq!(result, "a\nb");
+    }
+
+    #[test]
+    fn read_file_lines_empty_file() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/empty.txt").unwrap();
+        let result = vfs.read_file_lines("/home/user/empty.txt", 0, 10).unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn read_file_lines_nonexistent() {
+        let vfs = Vfs::new();
+        assert!(vfs.read_file_lines("/nope.txt", 0, 1).is_err());
+    }
+
+    #[test]
+    fn file_line_count_basic() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "a\nb\nc").unwrap();
+        assert_eq!(vfs.file_line_count("/home/user/f.txt").unwrap(), 3);
+    }
+
+    #[test]
+    fn file_line_count_empty() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/empty.txt").unwrap();
+        assert_eq!(vfs.file_line_count("/home/user/empty.txt").unwrap(), 0);
+    }
+
+    #[test]
+    fn file_line_count_trailing_newline() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "a\nb\n").unwrap();
+        assert_eq!(vfs.file_line_count("/home/user/f.txt").unwrap(), 2);
+    }
+
+    #[test]
+    fn file_size_basic() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/f.txt", "hello").unwrap();
+        assert_eq!(vfs.file_size("/home/user/f.txt").unwrap(), 5);
+    }
+
+    #[test]
+    fn file_size_empty() {
+        let mut vfs = Vfs::new();
+        vfs.touch("/home/user/empty.txt").unwrap();
+        assert_eq!(vfs.file_size("/home/user/empty.txt").unwrap(), 0);
+    }
+
+    // -- Tree-only JSON -------------------------------------------------------
+
+    #[test]
+    fn to_tree_json_has_structure_but_empty_contents() {
+        let mut vfs = Vfs::new();
+        vfs.write_file("/home/user/test.txt", "hello world")
+            .unwrap();
+        vfs.mkdir("/home/user/sub").unwrap();
+        vfs.write_file("/home/user/sub/nested.txt", "content")
+            .unwrap();
+
+        let tree_json = vfs.to_tree_json();
+        let restored = Vfs::from_json(&tree_json).unwrap();
+
+        // Structure is preserved.
+        assert!(restored.is_dir("/home/user"));
+        assert!(restored.is_dir("/home/user/sub"));
+        assert!(restored.exists("/home/user/test.txt"));
+        assert!(restored.exists("/home/user/sub/nested.txt"));
+
+        // Contents are empty.
+        assert_eq!(restored.read_file("/home/user/test.txt").unwrap(), "");
+        assert_eq!(restored.read_file("/home/user/sub/nested.txt").unwrap(), "");
     }
 }

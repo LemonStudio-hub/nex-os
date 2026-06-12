@@ -19,12 +19,39 @@
 //! - Piping (`|`), redirection (`>`, `>>`), and chaining (`&&`)
 //! - Prompt and tab completion
 
-use nexos::shell::Shell;
+use nexos::shell::{Service, ShellState};
 use nexos::vfs::Vfs;
 
-/// Helper: create a fresh [`Shell`] with a default VFS for testing.
-fn new_shell() -> Shell {
-    Shell::new(Vfs::new())
+/// Thin wrapper that mimics the old `Shell` API for test ergonomics.
+struct TestShell {
+    service: Service,
+    pub state: ShellState,
+}
+
+impl TestShell {
+    fn new() -> Self {
+        TestShell {
+            service: Service::new(),
+            state: ShellState::new(Vfs::new()),
+        }
+    }
+
+    fn execute(&mut self, input: &str) -> String {
+        self.service.execute_command(&mut self.state, input)
+    }
+
+    fn get_prompt(&self) -> String {
+        self.state.get_prompt()
+    }
+
+    fn get_completions(&self, partial: &str) -> Vec<String> {
+        self.service.get_completions(&self.state, partial)
+    }
+}
+
+/// Helper: create a fresh [`TestShell`] for testing.
+fn new_shell() -> TestShell {
+    TestShell::new()
 }
 
 // =========================================================================
@@ -81,7 +108,7 @@ fn test_mkdir_and_ls() {
 fn test_mkdir_p_recursive() {
     let mut shell = new_shell();
     shell.execute("mkdir -p /tmp/a/b/c");
-    assert!(shell.vfs.is_dir("/tmp/a/b/c"));
+    assert!(shell.state.vfs.is_dir("/tmp/a/b/c"));
 }
 
 /// `touch` should create a new empty file.
@@ -89,7 +116,7 @@ fn test_mkdir_p_recursive() {
 fn test_touch_creates_file() {
     let mut shell = new_shell();
     shell.execute("touch /tmp/newfile.txt");
-    assert!(shell.vfs.exists("/tmp/newfile.txt"));
+    assert!(shell.state.vfs.exists("/tmp/newfile.txt"));
 }
 
 /// `rm` should remove an existing file.
@@ -98,7 +125,7 @@ fn test_rm_file() {
     let mut shell = new_shell();
     shell.execute("touch /tmp/to_delete.txt");
     shell.execute("rm /tmp/to_delete.txt");
-    assert!(!shell.vfs.exists("/tmp/to_delete.txt"));
+    assert!(!shell.state.vfs.exists("/tmp/to_delete.txt"));
 }
 
 /// `rm` without `-r` should refuse to remove a directory.
@@ -117,7 +144,7 @@ fn test_rm_recursive() {
     shell.execute("mkdir /tmp/del_dir");
     shell.execute("touch /tmp/del_dir/f.txt");
     shell.execute("rm -r /tmp/del_dir");
-    assert!(!shell.vfs.exists("/tmp/del_dir"));
+    assert!(!shell.state.vfs.exists("/tmp/del_dir"));
 }
 
 /// `cp` should copy a file, preserving its content.
@@ -136,7 +163,7 @@ fn test_mv_file() {
     let mut shell = new_shell();
     shell.execute("echo data > /tmp/old.txt");
     shell.execute("mv /tmp/old.txt /tmp/new.txt");
-    assert!(!shell.vfs.exists("/tmp/old.txt"));
+    assert!(!shell.state.vfs.exists("/tmp/old.txt"));
     let out = shell.execute("cat /tmp/new.txt");
     assert!(out.contains("data"));
 }
@@ -722,7 +749,7 @@ fn test_and_chain_success() {
     let mut shell = new_shell();
     let out = shell.execute("mkdir /tmp/new && touch /tmp/new/f.txt && echo done");
     assert!(out.contains("done"));
-    assert!(shell.vfs.exists("/tmp/new/f.txt"));
+    assert!(shell.state.vfs.exists("/tmp/new/f.txt"));
 }
 
 /// `&&` chaining should stop at the first failing command.
@@ -808,13 +835,16 @@ fn test_vfs_persistence_via_shell() {
     shell.execute("echo data > /home/user/project/file.txt");
     shell.execute("cd /home/user/project");
 
-    let json = shell.vfs.to_json();
+    let json = shell.state.vfs.to_json();
     let restored_vfs = Vfs::from_json(&json).unwrap();
-    let mut new_shell = Shell::new(restored_vfs);
+    let mut new_shell = TestShell {
+        service: Service::new(),
+        state: ShellState::new(restored_vfs),
+    };
 
     let out = new_shell.execute("cat file.txt");
     assert!(out.contains("data"));
-    assert_eq!(new_shell.vfs.cwd, "/home/user/project");
+    assert_eq!(new_shell.state.vfs.cwd, "/home/user/project");
 }
 
 // =========================================================================

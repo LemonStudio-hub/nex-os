@@ -16,18 +16,46 @@ import type { Terminal } from '@xterm/xterm';
 /**
  * Minimal type surface for the WASM module.
  *
- * Only the functions actually called from TypeScript are listed here;
- * the full WASM API has additional exports used by other modules.
+ * All methods accept the current shell state as a JSON string (the first
+ * parameter).  State-mutating operations return updated state alongside
+ * their result.
  */
 export interface WasmApi {
-  /** Execute a command string and return its stdout/stderr output. */
-  execute_command(input: string): string;
+  /** Initialize the service and return the initial shell state JSON. */
+  init(stateJson: string): string;
+  /** Initialize with a custom username and return the initial shell state JSON. */
+  init_with_username(stateJson: string, username: string): string;
+  /**
+   * Execute a command string against the given state.
+   * Returns JSON: `{"output": "...", "state": "..."}`.
+   */
+  execute_command(state: string, input: string): string;
   /** Get the current prompt string (with ANSI colour codes). */
-  get_prompt(): string;
+  get_prompt(state: string): string;
   /** Get tab-completion candidates for the given partial input. */
-  get_completions(input: string): string[];
-  /** Serialise the current VFS state to JSON for OPFS persistence. */
-  get_state_json(): string;
+  get_completions(state: string, input: string): string[];
+  /** Get command history from the given state. */
+  get_history(state: string): string[];
+  /** Serialise the VFS from the given state to JSON for OPFS persistence. */
+  get_state_json(state: string): string;
+  /** Get dirty (modified/created) file paths as a JSON array. */
+  get_dirty_files_json(state: string): string;
+  /** Get deleted file paths as a JSON array. */
+  get_deleted_files_json(state: string): string;
+  /** Get the content of a single file. */
+  get_file_content(state: string, path: string): string;
+  /** Mark every file as dirty (for migration). */
+  mark_all_dirty(state: string): string;
+  /** Serialize the VFS tree structure with empty file contents. */
+  get_tree_json(state: string): string;
+}
+
+/**
+ * Parsed result from `execute_command`.
+ */
+interface ExecuteResult {
+  output: string;
+  state: string;
 }
 
 /**
@@ -44,15 +72,19 @@ export interface WasmApi {
  *
  * @param terminal      - The xterm.js terminal instance.
  * @param wasm          - The initialised WASM API bindings.
+ * @param initialState  - The initial shell state JSON string.
  * @param initialPrompt - The prompt string to display initially.
  * @param onSaveState   - Callback to persist VFS JSON to OPFS.
  */
 export function setupInputHandler(
   terminal: Terminal,
   wasm: WasmApi,
+  initialState: string,
   initialPrompt: string,
   onSaveState: (stateJson: string) => void,
 ): void {
+  // The current shell state — updated after every mutating operation.
+  let stateJson = initialState;
   // The current line being edited (not yet submitted).
   let inputBuffer = '';
   // Index into `history` for arrow-key navigation; -1 = not browsing.
@@ -77,22 +109,34 @@ export function setupInputHandler(
         history.push(inputBuffer);
         historyIndex = history.length;
 
-        // Delegate to the WASM shell.
-        const output = wasm.execute_command(inputBuffer);
+        // Delegate to the WASM shell — returns {output, state}.
+        const raw = wasm.execute_command(stateJson, inputBuffer);
+        let result: ExecuteResult;
+        try {
+          result = JSON.parse(raw);
+        } catch {
+          result = { output: raw, state: stateJson };
+        }
+
+        // Update the stored state.
+        stateJson = result.state;
 
         // The `clear` command returns a special ANSI escape sequence;
         // detect it and clear the terminal instead of printing it.
-        if (output === '\x1b[2J\x1b[H') {
+        if (result.output === '\x1b[2J\x1b[H') {
           terminal.clear();
-        } else if (output.length > 0) {
+        } else if (result.output.length > 0) {
           // Strip the trailing newline so the prompt sits flush with the
           // last line of output.
-          const trimmed = output.endsWith('\n') ? output.slice(0, -1) : output;
+          const trimmed = result.output.endsWith('\n')
+            ? result.output.slice(0, -1)
+            : result.output;
           terminal.writeln(trimmed);
         }
 
         // Persist the VFS snapshot so the user's work survives reloads.
-        const stateJson = wasm.get_state_json();
+        // Pass the full state JSON so the persistence layer can access
+        // dirty-tracking info for incremental saves.
         if (stateJson) {
           onSaveState(stateJson);
         }
@@ -100,7 +144,7 @@ export function setupInputHandler(
 
       // Reset buffer, refresh the prompt (cwd may have changed), and display it.
       inputBuffer = '';
-      prompt = wasm.get_prompt();
+      prompt = wasm.get_prompt(stateJson);
       terminal.write(prompt);
       return;
     }
@@ -173,7 +217,7 @@ export function setupInputHandler(
     // Tab — trigger tab completion
     // -----------------------------------------------------------------
     if (data === '\t') {
-      const completions = wasm.get_completions(inputBuffer);
+      const completions = wasm.get_completions(stateJson, inputBuffer);
       if (completions.length === 1) {
         // Single match: auto-complete and add a trailing space.
         const rest = completions[0].slice(inputBuffer.length);
