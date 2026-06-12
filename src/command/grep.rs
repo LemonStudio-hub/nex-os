@@ -44,7 +44,7 @@ use crate::vfs::Vfs;
 ///
 /// Matching lines (with optional prefixes), or an error if pattern/file
 /// arguments are missing.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let mut case_insensitive = false;
     let mut show_line_numbers = false;
     let mut positional: Vec<&str> = Vec::new();
@@ -82,7 +82,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     for path in files {
         let resolved = vfs.resolve_path(path)?;
-        let content = vfs.read_file(&resolved)?;
+        let content = vfs.read_file_with_host(&resolved, host_fs)?;
         // Only show the filename prefix when searching multiple files,
         // matching real grep's behavior for unambiguous output.
         let show_filename = files.len() > 1;
@@ -132,7 +132,7 @@ impl super::Command for GrepCommand {
         true
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "grep [-i] [-n] pattern file [file2 ...]"
@@ -166,28 +166,28 @@ mod tests {
     #[test]
     fn basic_match() {
         let vfs = vfs_with_lines(&["hello", "world", "hello again"]);
-        let out = execute(&vfs, &["hello", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["hello", "/tmp/f.txt"], None).unwrap();
         assert_eq!(out.lines().count(), 2);
     }
 
     #[test]
     fn no_match_returns_empty() {
         let vfs = vfs_with_lines(&["hello", "world"]);
-        let out = execute(&vfs, &["xyz", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["xyz", "/tmp/f.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
     #[test]
     fn case_insensitive() {
         let vfs = vfs_with_lines(&["Hello", "WORLD", "hello"]);
-        let out = execute(&vfs, &["-i", "hello", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-i", "hello", "/tmp/f.txt"], None).unwrap();
         assert_eq!(out.lines().count(), 2);
     }
 
     #[test]
     fn line_numbers() {
         let vfs = vfs_with_lines(&["aaa", "bbb", "aaa"]);
-        let out = execute(&vfs, &["-n", "aaa", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-n", "aaa", "/tmp/f.txt"], None).unwrap();
         assert!(out.contains("1:"));
         assert!(out.contains("3:"));
     }
@@ -195,14 +195,14 @@ mod tests {
     #[test]
     fn combined_in_flags() {
         let vfs = vfs_with_lines(&["Hello", "world"]);
-        let out = execute(&vfs, &["-in", "hello", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-in", "hello", "/tmp/f.txt"], None).unwrap();
         assert!(out.contains("1:"));
     }
 
     #[test]
     fn combined_ni_flags() {
         let vfs = vfs_with_lines(&["Hello", "world"]);
-        let out = execute(&vfs, &["-ni", "hello", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-ni", "hello", "/tmp/f.txt"], None).unwrap();
         assert!(out.contains("1:"));
     }
 
@@ -211,7 +211,7 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/a.txt", "hello").unwrap();
         vfs.write_file("/tmp/b.txt", "hello").unwrap();
-        let out = execute(&vfs, &["hello", "/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&vfs, &["hello", "/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         assert!(out.contains("/tmp/a.txt:"));
         assert!(out.contains("/tmp/b.txt:"));
     }
@@ -219,12 +219,12 @@ mod tests {
     #[test]
     fn missing_pattern() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &[]).is_err());
+        assert!(execute(&vfs, &[], None).is_err());
     }
 
     #[test]
     fn missing_file() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["pattern"]).is_err());
+        assert!(execute(&vfs, &["pattern"], None).is_err());
     }
 }

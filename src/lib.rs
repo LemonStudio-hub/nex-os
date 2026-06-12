@@ -17,6 +17,7 @@
 //! - **Deterministic replay** — state snapshots can be stored and restored.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Once;
 use wasm_bindgen::prelude::*;
@@ -28,7 +29,8 @@ pub mod shell;
 pub mod vfs;
 
 use shell::{Service, ShellState};
-use vfs::Vfs;
+use vfs::host_fs_wasm::WasmHostFs;
+use vfs::{HostFs, Vfs};
 
 // ---------------------------------------------------------------------------
 // Panic recovery
@@ -69,6 +71,7 @@ fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
 // populated by `init` or `init_with_username`.
 thread_local! {
     static SERVICE: RefCell<Option<Service>> = const { RefCell::new(None) };
+    static HOST_FS_REGISTRY: RefCell<HashMap<String, Box<dyn HostFs>>> = RefCell::new(HashMap::new());
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +165,22 @@ pub fn execute_command(state_json: &str, input: &str) -> String {
 
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         with_service(String::new(), |service| {
-            service.execute_command(&mut state, input)
+            // Build a composite HostFs from all registered mount handles.
+            // The VFS mount metadata maps VFS paths -> host names; the registry
+            // maps the same mount IDs -> HostFs implementations.
+            HOST_FS_REGISTRY.with(|registry| {
+                let reg = registry.borrow();
+                if reg.is_empty() {
+                    service.execute_command(&mut state, input, None)
+                } else {
+                    // Use the first registered HostFs (for single-mount case).
+                    // For multi-mount, we'd need a CompositeHostFs; for now,
+                    // each mount has its own HostFs and the VFS find_mount()
+                    // determines which paths to delegate.
+                    let host_fs: Option<&dyn HostFs> = reg.values().next().map(|b| b.as_ref());
+                    service.execute_command(&mut state, input, host_fs)
+                }
+            })
         })
     }));
 
@@ -316,4 +334,41 @@ pub fn get_tree_json(state_json: &str) -> String {
         Err(_) => return String::new(),
     };
     state.vfs.to_tree_json()
+}
+
+// ---------------------------------------------------------------------------
+// Host filesystem registration
+// ---------------------------------------------------------------------------
+
+/// Register a host filesystem adapter for a mounted directory.
+///
+/// `mount_id` is a unique identifier for this mount (typically the VFS path).
+/// `callbacks` is a JS object with synchronous functions for each FS operation
+/// (`list_dir`, `read_file`, `write_file`, `mkdir`, `touch`, `rm`, etc.).
+///
+/// The TypeScript side calls this after the user selects a directory via
+/// `showDirectoryPicker()` and the cache is populated.
+#[wasm_bindgen]
+pub fn register_host_fs(mount_id: &str, callbacks: JsValue) -> String {
+    ensure_panic_hook();
+    let host_fs = WasmHostFs::new(&callbacks);
+    HOST_FS_REGISTRY.with(|registry| {
+        registry
+            .borrow_mut()
+            .insert(mount_id.to_string(), Box::new(host_fs));
+    });
+    "ok".to_string()
+}
+
+/// Unregister a host filesystem adapter.
+///
+/// Called when a directory is unmounted. The `mount_id` must match a
+/// previously registered ID.
+#[wasm_bindgen]
+pub fn unregister_host_fs(mount_id: &str) -> String {
+    ensure_panic_hook();
+    HOST_FS_REGISTRY.with(|registry| {
+        registry.borrow_mut().remove(mount_id);
+    });
+    "ok".to_string()
 }

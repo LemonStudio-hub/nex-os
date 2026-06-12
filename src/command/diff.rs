@@ -41,7 +41,7 @@ use crate::vfs::Vfs;
 /// # Errors
 ///
 /// Returns an error for wrong argument count or VFS read failures.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     if args.len() < 2 {
         return Err("diff: missing file operand".to_string());
     }
@@ -51,8 +51,8 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     let resolved_a = vfs.resolve_path(args[0])?;
     let resolved_b = vfs.resolve_path(args[1])?;
-    let content_a = vfs.read_file(&resolved_a)?;
-    let content_b = vfs.read_file(&resolved_b)?;
+    let content_a = vfs.read_file_with_host(&resolved_a, host_fs)?;
+    let content_b = vfs.read_file_with_host(&resolved_b, host_fs)?;
 
     let lines_a: Vec<&str> = content_a.lines().collect();
     let lines_b: Vec<&str> = content_b.lines().collect();
@@ -183,7 +183,7 @@ impl super::Command for DiffCommand {
         "Compare two files line by line"
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "diff file1 file2"
@@ -205,7 +205,7 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/a.txt", "line1\nline2").unwrap();
         vfs.write_file("/tmp/b.txt", "line1\nline2").unwrap();
-        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -214,7 +214,7 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/a.txt", "hello").unwrap();
         vfs.write_file("/tmp/b.txt", "world").unwrap();
-        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         assert!(!out.is_empty());
         assert!(out.contains("-") || out.contains("+"));
     }
@@ -222,14 +222,14 @@ mod tests {
     #[test]
     fn missing_args() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &[]).is_err());
-        assert!(execute(&vfs, &["/tmp/a.txt"]).is_err());
+        assert!(execute(&vfs, &[], None).is_err());
+        assert!(execute(&vfs, &["/tmp/a.txt"], None).is_err());
     }
 
     #[test]
     fn too_many_args() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["a", "b", "c"]).is_err());
+        assert!(execute(&vfs, &["a", "b", "c"], None).is_err());
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/a.txt", "").unwrap();
         vfs.write_file("/tmp/b.txt", "").unwrap();
-        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -246,7 +246,7 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/a.txt", "").unwrap();
         vfs.write_file("/tmp/b.txt", "content").unwrap();
-        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         assert!(!out.is_empty());
         assert!(out.contains("+"));
     }

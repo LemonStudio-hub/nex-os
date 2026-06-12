@@ -41,7 +41,7 @@ use crate::vfs::Vfs;
 ///
 /// `Ok(String)` containing the trailing lines joined by newlines (with a
 /// trailing newline), or `Err` if the file is missing or arguments are invalid.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     // Default to the POSIX-standard 10 lines when -n is not specified.
     let mut count: usize = 10;
     let mut file_path: Option<&str> = None;
@@ -75,9 +75,9 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     // Use file_line_count to determine the skip offset, then read only the
     // trailing lines via the efficient partial-read API.
-    let total = vfs.file_line_count(&resolved)?;
+    let total = vfs.file_line_count_with_host(&resolved, host_fs)?;
     let start = total.saturating_sub(count);
-    let output = vfs.read_file_lines(&resolved, start, count)?;
+    let output = vfs.read_file_lines_with_host(&resolved, start, count, host_fs)?;
     Ok(format!("{}\n", output))
 }
 
@@ -106,7 +106,7 @@ impl super::Command for TailCommand {
     /// Entry point called by the shell dispatcher. Extracts the VFS and args
     /// from the shared [`super::CommandContext`].
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "tail [-n COUNT] file"
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn default_ten_lines() {
         let vfs = vfs_with_lines(20);
-        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/f.txt"], None).unwrap();
         // Should contain lines 11-20 but not line 10.
         assert!(out.contains("line11"));
         assert!(out.contains("line20"));
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn custom_count() {
         let vfs = vfs_with_lines(20);
-        let out = execute(&vfs, &["-n", "3", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-n", "3", "/tmp/f.txt"], None).unwrap();
         // Last 3 lines of a 20-line file: lines 18, 19, 20.
         assert!(out.contains("line18"));
         assert!(out.contains("line20"));
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn compact_n_flag() {
         let vfs = vfs_with_lines(10);
-        let out = execute(&vfs, &["-n2", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-n2", "/tmp/f.txt"], None).unwrap();
         // Compact flag "-n2" should behave the same as "-n 2".
         assert!(out.contains("line9"));
         assert!(out.contains("line10"));
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn file_shorter_than_count() {
         let vfs = vfs_with_lines(3);
-        let out = execute(&vfs, &["-n", "10", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-n", "10", "/tmp/f.txt"], None).unwrap();
         // When the file has fewer lines than requested, all lines are returned.
         assert!(out.contains("line1"));
         assert!(out.contains("line3"));
@@ -177,13 +177,13 @@ mod tests {
     fn missing_file() {
         let vfs = Vfs::new();
         // No arguments at all should produce an error.
-        assert!(execute(&vfs, &[]).is_err());
+        assert!(execute(&vfs, &[], None).is_err());
     }
 
     #[test]
     fn invalid_count() {
         let vfs = Vfs::new();
         // A non-numeric value after -n should produce an error.
-        assert!(execute(&vfs, &["-n", "abc", "/tmp/f.txt"]).is_err());
+        assert!(execute(&vfs, &["-n", "abc", "/tmp/f.txt"], None).is_err());
     }
 }

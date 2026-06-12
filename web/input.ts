@@ -12,6 +12,7 @@
  */
 
 import type { Terminal } from '@xterm/xterm';
+import type { HostFsManager } from './host-fs';
 
 /**
  * Minimal type surface for the WASM module.
@@ -48,6 +49,10 @@ export interface WasmApi {
   mark_all_dirty(state: string): string;
   /** Serialize the VFS tree structure with empty file contents. */
   get_tree_json(state: string): string;
+  /** Register host FS callbacks for a mount. */
+  register_host_fs(mountId: string, callbacks: object): string;
+  /** Unregister host FS callbacks for a mount. */
+  unregister_host_fs(mountId: string): string;
 }
 
 /**
@@ -82,6 +87,7 @@ export function setupInputHandler(
   initialState: string,
   initialPrompt: string,
   onSaveState: (stateJson: string) => void,
+  hostFsManager?: HostFsManager,
 ): void {
   // The current shell state — updated after every mutating operation.
   let stateJson = initialState;
@@ -121,6 +127,24 @@ export function setupInputHandler(
         // Update the stored state.
         stateJson = result.state;
 
+        // Detect mount request: the `mount` command returns a special
+        // error marker that signals the frontend to open the directory picker.
+        if (result.output.startsWith('__MOUNT_REQUEST__')) {
+          const vfsPath = result.output.replace('__MOUNT_REQUEST__', '').trim();
+          handleMountRequest(terminal, wasm, vfsPath, hostFsManager)
+            .then((newState) => {
+              if (newState) {
+                stateJson = newState;
+                onSaveState(stateJson);
+              }
+              prompt = wasm.get_prompt(stateJson);
+              terminal.write(prompt);
+            });
+          // Don't write prompt here — the async handler will do it
+          inputBuffer = '';
+          return;
+        }
+
         // The `clear` command returns a special ANSI escape sequence;
         // detect it and clear the terminal instead of printing it.
         if (result.output === '\x1b[2J\x1b[H') {
@@ -132,6 +156,11 @@ export function setupInputHandler(
             ? result.output.slice(0, -1)
             : result.output;
           terminal.writeln(trimmed);
+        }
+
+        // Flush any pending host FS writes.
+        if (hostFsManager) {
+          hostFsManager.flushWrites();
         }
 
         // Persist the VFS snapshot so the user's work survives reloads.
@@ -261,5 +290,63 @@ export function setupInputHandler(
 function clearCurrentInput(terminal: Terminal, input: string): void {
   for (let i = 0; i < input.length; i++) {
     terminal.write('\b \b');
+  }
+}
+
+/**
+ * Handle a mount request from the `mount` command.
+ *
+ * Opens the browser's directory picker, caches the selected directory,
+ * registers the host FS callbacks with WASM, and updates the VFS state.
+ *
+ * @returns The updated state JSON, or null if the mount was cancelled.
+ */
+async function handleMountRequest(
+  terminal: Terminal,
+  wasm: WasmApi,
+  vfsPath: string,
+  hostFsManager?: HostFsManager,
+): Promise<string | null> {
+  if (!hostFsManager) {
+    terminal.writeln('\x1b[31mMount not supported in this context.\x1b[0m');
+    return null;
+  }
+
+  try {
+    // @ts-expect-error: showDirectoryPicker may not be in all type defs
+    const handle: FileSystemDirectoryHandle = await window.showDirectoryPicker({
+      mode: 'readwrite',
+    });
+
+    terminal.writeln(`\x1b[33mMounting ${handle.name} at ${vfsPath}...\x1b[0m`);
+
+    // Pre-cache the directory contents and register callbacks
+    const mountId = await hostFsManager.mount(handle, vfsPath);
+    const callbacks = hostFsManager.getCallbacks(mountId);
+    if (callbacks) {
+      wasm.register_host_fs(mountId, callbacks);
+    }
+
+    // Update the mount metadata in VFS state via a shell command
+    // The mount command already created the VFS entry; we just need to
+    // update the host name. Use a no-op command to get the state back.
+    const updateResult = wasm.execute_command(
+      wasm.get_state_json(wasm.init_with_username('', 'user')),
+      `export NEXOS_MOUNT_${mountId}=${vfsPath}`,
+    );
+
+    terminal.writeln(
+      `\x1b[32mMounted ${handle.name} at ${vfsPath}\x1b[0m`,
+    );
+
+    // Return the current state (which already has the mount metadata)
+    return null; // The state was already updated by the mount command
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      terminal.writeln('\x1b[33mMount cancelled.\x1b[0m');
+    } else {
+      terminal.writeln(`\x1b[31mMount failed: ${e}\x1b[0m`);
+    }
+    return null;
   }
 }

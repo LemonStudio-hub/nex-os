@@ -22,7 +22,7 @@
 //! touch a.txt b.txt c.txt        # create multiple files at once
 //! ```
 
-use crate::vfs::Vfs;
+use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `touch` command against the virtual filesystem.
 ///
@@ -34,19 +34,20 @@ use crate::vfs::Vfs;
 ///
 /// * `vfs` -- Mutable reference to the virtual filesystem (files may be created).
 /// * `args` -- Slice of file paths to touch.
+/// * `host_fs` -- Optional host filesystem adapter for mounted directories.
 ///
 /// # Returns
 ///
 /// `Ok(String::new())` on success (touch produces no stdout), or `Err` if
 /// no file operand is given or a path cannot be resolved.
-pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
     if args.is_empty() {
         return Err("touch: missing file operand".to_string());
     }
 
     for path in args {
         let resolved = vfs.resolve_path(path)?;
-        vfs.touch(&resolved)?;
+        vfs.touch_with_host(&resolved, host_fs)?;
     }
 
     // touch produces no output on success.
@@ -73,7 +74,7 @@ impl super::Command for TouchCommand {
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
     }
 
     fn synopsis(&self) -> &'static str {

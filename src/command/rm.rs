@@ -37,7 +37,7 @@
 //! * Target does not exist.
 //! * Target is a directory and `-r` was not specified.
 
-use crate::vfs::Vfs;
+use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `rm` command.
 ///
@@ -49,12 +49,13 @@ use crate::vfs::Vfs;
 ///
 /// * `vfs` -- Mutable reference to the virtual file system.
 /// * `args` -- Command-line arguments (flags + target paths).
+/// * `host_fs` -- Optional host filesystem adapter for mounted directories.
 ///
 /// # Returns
 ///
 /// `Ok(String::new())` on success (rm produces no output), or
 /// `Err(message)` describing the failure.
-pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
     let mut recursive = false;
     let mut paths: Vec<&str> = Vec::new();
 
@@ -75,7 +76,7 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
     for path in paths {
         let resolved = vfs.resolve_path(path)?;
 
-        if !vfs.exists(&resolved) {
+        if !vfs.exists_with_host(&resolved, host_fs).unwrap_or(false) {
             return Err(format!(
                 "rm: cannot remove '{}': No such file or directory",
                 path
@@ -84,14 +85,14 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
 
         // Directories cannot be removed without the recursive flag,
         // matching real `rm` which prints "Is a directory" in this case.
-        if vfs.is_dir(&resolved) && !recursive {
+        if vfs.is_dir_with_host(&resolved, host_fs).unwrap_or(false) && !recursive {
             return Err(format!("rm: cannot remove '{}': Is a directory", path));
         }
 
         if recursive {
-            vfs.rm_recursive(&resolved)?;
+            vfs.rm_recursive_with_host(&resolved, host_fs)?;
         } else {
-            vfs.rm(&resolved)?;
+            vfs.rm_with_host(&resolved, host_fs)?;
         }
     }
 
@@ -116,7 +117,7 @@ impl super::Command for RmCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
     }
 
     fn synopsis(&self) -> &'static str {

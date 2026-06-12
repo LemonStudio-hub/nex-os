@@ -15,6 +15,7 @@
 //! execution.  The frontend writes that JSON to the browser's Origin Private
 //! File System (OPFS) so that the user's files survive page reloads.
 
+use super::host_fs::HostFs;
 use super::node::{ChunkedContent, DirNode, FileNode, FsNode};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -81,6 +82,11 @@ pub struct Vfs {
     /// Paths of files deleted since the last save.
     #[serde(skip)]
     deleted_files: HashSet<String>,
+    /// Map of VFS mount path -> host directory name (e.g. `"/mnt/project"` -> `"project"`).
+    /// Serialized so mount points survive page reloads. The actual
+    /// `FileSystemDirectoryHandle` objects live on the JS side and must be
+    /// re-authorized after each reload.
+    pub mounts: HashMap<String, String>,
 }
 
 impl Default for Vfs {
@@ -125,6 +131,7 @@ impl Vfs {
             cwd: "/".to_string(),
             dirty_files: HashSet::new(),
             deleted_files: HashSet::new(),
+            mounts: HashMap::new(),
         }
     }
 
@@ -519,6 +526,263 @@ impl Vfs {
             }
         }
         Ok(String::new())
+    }
+
+    // ---- Mount management ----------------------------------------------------
+
+    /// Register a mount point mapping a VFS path to a host directory name.
+    pub fn add_mount(&mut self, vfs_path: String, host_path: String) {
+        self.mounts.insert(vfs_path, host_path);
+    }
+
+    /// Remove a mount point. Returns `true` if it existed.
+    pub fn remove_mount(&mut self, vfs_path: &str) -> bool {
+        self.mounts.remove(vfs_path).is_some()
+    }
+
+    /// Check if a path falls under a mount point.
+    ///
+    /// Returns `Some((mount_vfs_path, relative_remainder))` if the path
+    /// is exactly a mount point or is nested beneath one. The `relative`
+    /// portion is the path relative to the mount root (empty string for
+    /// the mount root itself).
+    pub fn find_mount<'a>(&'a self, path: &'a str) -> Option<(&'a str, &'a str)> {
+        // Check exact match first
+        if self.mounts.contains_key(path) {
+            return Some((path, ""));
+        }
+        // Check prefix match (path starts with mount + "/")
+        for mount_path in self.mounts.keys() {
+            if let Some(rest) = path.strip_prefix(mount_path.as_str()) {
+                if rest.starts_with('/') {
+                    return Some((mount_path.as_str(), &rest[1..]));
+                }
+            }
+        }
+        None
+    }
+
+    /// List all active mounts.
+    pub fn list_mounts(&self) -> &HashMap<String, String> {
+        &self.mounts
+    }
+
+    // ---- Host-delegating method variants ------------------------------------
+
+    /// Read a file, delegating to `HostFs` if the path is under a mount point.
+    pub fn read_file_with_host(
+        &self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<String, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.read_file(relative);
+            }
+        }
+        self.read_file(&resolved)
+    }
+
+    /// Read a range of lines, delegating to `HostFs` if mounted.
+    pub fn read_file_lines_with_host(
+        &self,
+        path: &str,
+        start: usize,
+        count: usize,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<String, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.read_file_lines(relative, start, count);
+            }
+        }
+        self.read_file_lines(&resolved, start, count)
+    }
+
+    /// Return line count, delegating to `HostFs` if mounted.
+    pub fn file_line_count_with_host(
+        &self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<usize, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.file_line_count(relative);
+            }
+        }
+        self.file_line_count(&resolved)
+    }
+
+    /// Return file size, delegating to `HostFs` if mounted.
+    pub fn file_size_with_host(
+        &self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<usize, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.file_size(relative);
+            }
+        }
+        self.file_size(&resolved)
+    }
+
+    /// Write a file, delegating to `HostFs` if mounted.
+    pub fn write_file_with_host(
+        &mut self,
+        path: &str,
+        content: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<String, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.write_file(relative, content);
+            }
+        }
+        self.write_file(&resolved, content)
+    }
+
+    /// List a directory, delegating to `HostFs` if mounted.
+    ///
+    /// When reading from the host, entries are converted to `FsNode` so
+    /// callers get a uniform type.
+    pub fn list_dir_with_host(
+        &self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<Vec<FsNode>, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                let entries = hfs.list_dir(relative)?;
+                return Ok(entries
+                    .into_iter()
+                    .map(|e| {
+                        if e.is_dir {
+                            FsNode::Directory(DirNode {
+                                name: e.name,
+                                children: HashMap::new(),
+                            })
+                        } else {
+                            FsNode::File(FileNode {
+                                name: e.name,
+                                content: ChunkedContent::new(),
+                            })
+                        }
+                    })
+                    .collect());
+            }
+        }
+        self.list_dir(&resolved)
+    }
+
+    /// Check existence, delegating to `HostFs` if mounted.
+    pub fn exists_with_host(
+        &self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<bool, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.exists(relative);
+            }
+        }
+        Ok(self.exists(&resolved))
+    }
+
+    /// Check if path is a directory, delegating to `HostFs` if mounted.
+    pub fn is_dir_with_host(
+        &self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<bool, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.is_dir(relative);
+            }
+        }
+        Ok(self.is_dir(&resolved))
+    }
+
+    /// Create a directory, delegating to `HostFs` if mounted.
+    pub fn mkdir_with_host(
+        &mut self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<String, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.mkdir(relative);
+            }
+        }
+        self.mkdir(&resolved)
+    }
+
+    /// Touch a file, delegating to `HostFs` if mounted.
+    pub fn touch_with_host(
+        &mut self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<String, String> {
+        let resolved = self.resolve_path(path)?;
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.touch(relative);
+            }
+        }
+        self.touch(&resolved)
+    }
+
+    /// Remove a node, delegating to `HostFs` if mounted.
+    ///
+    /// Refuses to remove a mount root — use `unmount` first.
+    pub fn rm_with_host(
+        &mut self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<String, String> {
+        let resolved = self.resolve_path(path)?;
+        if self.mounts.contains_key(&resolved) {
+            return Err(format!(
+                "rm: cannot remove mount point '{}': use 'mount -u' to unmount first",
+                path_display_name(&resolved)
+            ));
+        }
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.rm(relative);
+            }
+        }
+        self.rm(&resolved)
+    }
+
+    /// Remove a node recursively, delegating to `HostFs` if mounted.
+    pub fn rm_recursive_with_host(
+        &mut self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> Result<String, String> {
+        let resolved = self.resolve_path(path)?;
+        if self.mounts.contains_key(&resolved) {
+            return Err(format!(
+                "rm: cannot remove mount point '{}': use 'mount -u' to unmount first",
+                path_display_name(&resolved)
+            ));
+        }
+        if let Some(hfs) = host_fs {
+            if let Some((_mount, relative)) = self.find_mount(&resolved) {
+                return hfs.rm_recursive(relative);
+            }
+        }
+        self.rm_recursive(&resolved)
     }
 
     // ---- Dirty tracking ------------------------------------------------------
@@ -1265,5 +1529,65 @@ mod tests {
         // Contents are empty.
         assert_eq!(restored.read_file("/home/user/test.txt").unwrap(), "");
         assert_eq!(restored.read_file("/home/user/sub/nested.txt").unwrap(), "");
+    }
+
+    // -- Mount management ------------------------------------------------------
+
+    #[test]
+    fn add_and_find_mount_exact() {
+        let mut vfs = Vfs::new();
+        vfs.add_mount("/mnt/host".to_string(), "mydir".to_string());
+        let (mount, rel) = vfs.find_mount("/mnt/host").unwrap();
+        assert_eq!(mount, "/mnt/host");
+        assert_eq!(rel, "");
+    }
+
+    #[test]
+    fn find_mount_nested_path() {
+        let mut vfs = Vfs::new();
+        vfs.add_mount("/mnt/host".to_string(), "mydir".to_string());
+        let (mount, rel) = vfs.find_mount("/mnt/host/src/main.rs").unwrap();
+        assert_eq!(mount, "/mnt/host");
+        assert_eq!(rel, "src/main.rs");
+    }
+
+    #[test]
+    fn find_mount_no_match() {
+        let mut vfs = Vfs::new();
+        vfs.add_mount("/mnt/host".to_string(), "mydir".to_string());
+        assert!(vfs.find_mount("/home/user").is_none());
+        // "/mnt/hostname" should NOT match "/mnt/host"
+        assert!(vfs.find_mount("/mnt/hostname").is_none());
+    }
+
+    #[test]
+    fn remove_mount() {
+        let mut vfs = Vfs::new();
+        vfs.add_mount("/mnt/host".to_string(), "mydir".to_string());
+        assert!(vfs.remove_mount("/mnt/host"));
+        assert!(!vfs.remove_mount("/mnt/host")); // already gone
+        assert!(vfs.find_mount("/mnt/host").is_none());
+    }
+
+    #[test]
+    fn mount_roundtrip_in_json() {
+        let mut vfs = Vfs::new();
+        vfs.add_mount("/mnt/project".to_string(), "project".to_string());
+        let json = vfs.to_json();
+        let restored = Vfs::from_json(&json).unwrap();
+        assert!(restored.mounts.contains_key("/mnt/project"));
+        assert_eq!(restored.mounts["/mnt/project"], "project");
+    }
+
+    #[test]
+    fn rm_mount_point_refused() {
+        let mut vfs = Vfs::new();
+        vfs.mkdir("/mnt").unwrap();
+        vfs.add_mount("/mnt/host".to_string(), "host".to_string());
+        // Manually create the dir so rm has something to try to remove
+        vfs.mkdir("/mnt/host").unwrap();
+        let result = vfs.rm_with_host("/mnt/host", None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("mount point"));
     }
 }

@@ -50,7 +50,7 @@ use crate::vfs::Vfs;
 ///
 /// `Ok(String)` with formatted count output, or `Err` if no file operand
 /// is given or a path cannot be resolved.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let mut show_lines = false;
     let mut show_words = false;
     let mut show_chars = false;
@@ -88,8 +88,8 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
         // Use file_line_count for efficient line counting from chunked
         // content.  Word and char counts still need the full content.
-        let line_count = vfs.file_line_count(&resolved)?;
-        let content = vfs.read_file(&resolved)?;
+        let line_count = vfs.file_line_count_with_host(&resolved, host_fs)?;
+        let content = vfs.read_file_with_host(&resolved, host_fs)?;
         let word_count = content.split_whitespace().count();
         let char_count = content.chars().count();
 
@@ -157,7 +157,7 @@ impl super::Command for WcCommand {
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "wc [-l] [-w] [-c] file [file2 ...]"
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn default_shows_all_counts() {
         let vfs = vfs_with_content("hello world\nfoo bar");
-        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/f.txt"], None).unwrap();
         // "hello world\nfoo bar" has 2 lines and 4 words.
         assert!(out.contains("2")); // 2 lines
         assert!(out.contains("4")); // 4 words
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn lines_only() {
         let vfs = vfs_with_content("a\nb\nc");
-        let out = execute(&vfs, &["-l", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-l", "/tmp/f.txt"], None).unwrap();
         // Three newline-separated lines.
         assert!(out.contains("3"));
     }
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn words_only() {
         let vfs = vfs_with_content("one two three");
-        let out = execute(&vfs, &["-w", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-w", "/tmp/f.txt"], None).unwrap();
         // Three whitespace-separated words.
         assert!(out.contains("3"));
     }
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn chars_only() {
         let vfs = vfs_with_content("abc");
-        let out = execute(&vfs, &["-c", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-c", "/tmp/f.txt"], None).unwrap();
         // Three Unicode characters.
         assert!(out.contains("3"));
     }
@@ -220,7 +220,7 @@ mod tests {
     fn empty_file() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/empty.txt", "").unwrap();
-        let out = execute(&vfs, &["/tmp/empty.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/empty.txt"], None).unwrap();
         // An empty file should report zero for all counts.
         assert!(out.contains("0"));
     }
@@ -230,7 +230,7 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/a.txt", "hello").unwrap();
         vfs.write_file("/tmp/b.txt", "world").unwrap();
-        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         // Multiple files should produce a summary "total" line.
         assert!(out.contains("total"));
     }
@@ -239,6 +239,6 @@ mod tests {
     fn missing_file() {
         let vfs = Vfs::new();
         // No arguments at all should produce an error.
-        assert!(execute(&vfs, &[]).is_err());
+        assert!(execute(&vfs, &[], None).is_err());
     }
 }

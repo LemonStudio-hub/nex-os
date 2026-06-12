@@ -39,18 +39,18 @@ use crate::vfs::{FsNode, Vfs};
 ///
 /// `Ok(String)` containing the formatted tree with a summary line, or `Err`
 /// if the path does not exist.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let path = if args.is_empty() { "." } else { args[0] };
     let resolved = vfs.resolve_path(path)?;
 
-    if !vfs.exists(&resolved) {
+    if !vfs.exists_with_host(&resolved, host_fs).unwrap_or(false) {
         return Err(format!("tree: '{}': No such file or directory", path));
     }
 
     // If the target is a regular file rather than a directory, just print
     // its name with a zero-count summary (matching the behavior of `tree`
     // on a non-directory argument).
-    if !vfs.is_dir(&resolved) {
+    if !vfs.is_dir_with_host(&resolved, host_fs).unwrap_or(false) {
         return Ok(format!("{}\n0 directories, 0 files\n", path));
     }
 
@@ -79,6 +79,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
         &mut output,
         &mut dir_count,
         &mut file_count,
+        host_fs,
     );
 
     output.push_str(&format!(
@@ -113,8 +114,9 @@ fn build_tree(
     output: &mut String,
     dir_count: &mut usize,
     file_count: &mut usize,
+    host_fs: Option<&dyn crate::vfs::HostFs>,
 ) {
-    let entries: Vec<FsNode> = match vfs.list_dir(path) {
+    let entries: Vec<FsNode> = match vfs.list_dir_with_host(path, host_fs) {
         Ok(e) => e,
         // If we can't list the directory (e.g., permission issue), silently
         // skip it rather than aborting the entire tree.
@@ -157,6 +159,7 @@ fn build_tree(
                 output,
                 dir_count,
                 file_count,
+                host_fs,
             );
         } else {
             *file_count += 1;
@@ -184,7 +187,7 @@ impl super::Command for TreeCommand {
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
 
     fn synopsis(&self) -> &'static str {

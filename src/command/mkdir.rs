@@ -38,7 +38,7 @@
 //! * Without `-p`: target already exists, or parent directory is missing.
 //! * Invalid path (no leading `/` after resolution).
 
-use crate::vfs::Vfs;
+use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `mkdir` command.
 ///
@@ -50,12 +50,13 @@ use crate::vfs::Vfs;
 ///
 /// * `vfs` -- Mutable reference to the virtual file system.
 /// * `args` -- Command-line arguments (flags + path tokens).
+/// * `host_fs` -- Optional host filesystem adapter for mounted directories.
 ///
 /// # Returns
 ///
 /// `Ok(String::new())` on success (mkdir produces no output), or
 /// `Err(message)` describing the failure.
-pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
     let mut recursive = false;
     let mut paths: Vec<&str> = Vec::new();
 
@@ -87,13 +88,13 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
             for component in components {
                 current.push('/');
                 current.push_str(component);
-                if !vfs.exists(&current) {
-                    vfs.mkdir(&current)?;
+                if !vfs.exists_with_host(&current, host_fs).unwrap_or(false) {
+                    vfs.mkdir_with_host(&current, host_fs)?;
                 }
             }
         } else {
             // Non-recursive mode: the directory must not already exist.
-            if vfs.exists(&resolved) {
+            if vfs.exists_with_host(&resolved, host_fs).unwrap_or(false) {
                 return Err(format!(
                     "mkdir: cannot create directory '{}': File exists",
                     path
@@ -110,14 +111,16 @@ pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
             };
 
             // The parent must exist and must be a directory.
-            if !vfs.exists(&parent) || !vfs.is_dir(&parent) {
+            if !vfs.exists_with_host(&parent, host_fs).unwrap_or(false)
+                || !vfs.is_dir_with_host(&parent, host_fs).unwrap_or(false)
+            {
                 return Err(format!(
                     "mkdir: cannot create directory '{}': No such file or directory",
                     path
                 ));
             }
 
-            vfs.mkdir(&resolved)?;
+            vfs.mkdir_with_host(&resolved, host_fs)?;
         }
     }
 
@@ -142,7 +145,7 @@ impl super::Command for MkdirCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
     }
 
     fn synopsis(&self) -> &'static str {

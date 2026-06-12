@@ -36,7 +36,7 @@ use crate::vfs::Vfs;
 /// # Returns
 ///
 /// Newline-separated list of matching paths, or an error if `-name` is missing.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let mut search_path = ".";
     let mut pattern: Option<&str> = None;
 
@@ -61,7 +61,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     let resolved = vfs.resolve_path(search_path)?;
 
     let mut results = Vec::new();
-    collect_matches(vfs, &resolved, pattern, &mut results);
+    collect_matches(vfs, &resolved, pattern, &mut results, host_fs);
 
     if results.is_empty() {
         Ok(String::new())
@@ -76,8 +76,8 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 /// Uses `name.contains(pattern)` for matching -- this means "readme"
 /// will match "readme.txt", "README.md", etc. The match is always
 /// against the entry name only, not the full path.
-fn collect_matches(vfs: &Vfs, dir_path: &str, pattern: &str, results: &mut Vec<String>) {
-    let entries = match vfs.list_dir(dir_path) {
+fn collect_matches(vfs: &Vfs, dir_path: &str, pattern: &str, results: &mut Vec<String>, host_fs: Option<&dyn crate::vfs::HostFs>) {
+    let entries = match vfs.list_dir_with_host(dir_path, host_fs) {
         Ok(e) => e,
         // If we can't list the directory (e.g., it's actually a file),
         // silently skip it rather than propagating an error mid-walk.
@@ -96,7 +96,7 @@ fn collect_matches(vfs: &Vfs, dir_path: &str, pattern: &str, results: &mut Vec<S
         // Always recurse into subdirectories, even if the directory itself
         // matched -- its children may also match independently.
         if entry.is_dir() {
-            collect_matches(vfs, &entry_path, pattern, results);
+            collect_matches(vfs, &entry_path, pattern, results, host_fs);
         }
     }
 }
@@ -113,7 +113,7 @@ impl super::Command for FindCommand {
         "Find files by name (find [path] -name PATTERN)"
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "find [path] -name pattern"
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn find_by_name() {
         let vfs = setup_vfs();
-        let out = execute(&vfs, &["/tmp/search", "-name", "readme"]).unwrap();
+        let out = execute(&vfs, &["/tmp/search", "-name", "readme"], None).unwrap();
         assert!(out.contains("readme.txt"));
         assert!(out.contains("readme.md"));
         assert!(out.contains("readme.log"));
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn find_no_results() {
         let vfs = setup_vfs();
-        let out = execute(&vfs, &["/tmp/search", "-name", "nonexistent"]).unwrap();
+        let out = execute(&vfs, &["/tmp/search", "-name", "nonexistent"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -167,13 +167,13 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.cwd = "/tmp".to_string();
         vfs.write_file("/tmp/target.txt", "").unwrap();
-        let out = execute(&vfs, &["-name", "target"]).unwrap();
+        let out = execute(&vfs, &["-name", "target"], None).unwrap();
         assert!(out.contains("target.txt"));
     }
 
     #[test]
     fn find_missing_name_arg() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["/tmp"]).is_err());
+        assert!(execute(&vfs, &["/tmp"], None).is_err());
     }
 }

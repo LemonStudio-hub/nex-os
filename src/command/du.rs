@@ -40,7 +40,7 @@ use crate::vfs::{FsNode, Vfs};
 /// # Returns
 ///
 /// Formatted string of directory sizes, or an error for unknown options.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let mut human = false;
     let mut summary = false;
     // Default to current directory when no path is provided.
@@ -61,14 +61,14 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     // In summary mode, skip per-entry output and print only the grand total.
     if summary {
-        let total = dir_size(vfs, &resolved);
+        let total = dir_size(vfs, &resolved, host_fs);
         return Ok(format!("{}\t{}\n", format_size(total, human), path));
     }
 
     // Collect per-subdirectory sizes, then append the overall total.
     let mut output = String::new();
-    collect_sizes(vfs, &resolved, path, human, &mut output);
-    let total = dir_size(vfs, &resolved);
+    collect_sizes(vfs, &resolved, path, human, &mut output, host_fs);
+    let total = dir_size(vfs, &resolved, host_fs);
     output.push_str(&format!("{}\t{}\n", format_size(total, human), path));
     Ok(output)
 }
@@ -79,13 +79,13 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 /// a directory, sums the sizes of all entries recursively. A `list_dir`
 /// failure is silently treated as a file lookup -- this handles the edge
 /// case where the path might be a file rather than a directory.
-fn dir_size(vfs: &Vfs, path: &str) -> usize {
-    let entries = match vfs.list_dir(path) {
+fn dir_size(vfs: &Vfs, path: &str, host_fs: Option<&dyn crate::vfs::HostFs>) -> usize {
+    let entries = match vfs.list_dir_with_host(path, host_fs) {
         Ok(e) => e,
         Err(_) => {
             // Not a directory -- attempt to read as a file and return its
             // content length, or 0 if the read also fails.
-            return vfs.read_file(path).map(|c| c.len()).unwrap_or(0);
+            return vfs.read_file_with_host(path, host_fs).map(|c| c.len()).unwrap_or(0);
         }
     };
 
@@ -96,7 +96,7 @@ fn dir_size(vfs: &Vfs, path: &str) -> usize {
         match entry {
             FsNode::File(f) => total += f.content.len(),
             // Recurse into subdirectories to accumulate their total.
-            FsNode::Directory(_) => total += dir_size(vfs, &entry_path),
+            FsNode::Directory(_) => total += dir_size(vfs, &entry_path, host_fs),
         }
     }
     total
@@ -111,8 +111,8 @@ fn dir_size(vfs: &Vfs, path: &str) -> usize {
 /// `display_path` tracks the user-visible path (relative or absolute),
 /// while `abs_path` is the resolved VFS path used for lookups. The
 /// distinction is needed so that output paths match what the user typed.
-fn collect_sizes(vfs: &Vfs, abs_path: &str, display_path: &str, human: bool, output: &mut String) {
-    let entries = match vfs.list_dir(abs_path) {
+fn collect_sizes(vfs: &Vfs, abs_path: &str, display_path: &str, human: bool, output: &mut String, host_fs: Option<&dyn crate::vfs::HostFs>) {
+    let entries = match vfs.list_dir_with_host(abs_path, host_fs) {
         Ok(e) => e,
         Err(_) => return,
     };
@@ -130,13 +130,13 @@ fn collect_sizes(vfs: &Vfs, abs_path: &str, display_path: &str, human: bool, out
         // Only directories get their own line entry; files contribute
         // silently to their parent's total.
         if entry.is_dir() {
-            let size = dir_size(vfs, &entry_abs);
+            let size = dir_size(vfs, &entry_abs, host_fs);
             output.push_str(&format!(
                 "{}\t{}\n",
                 format_size(size, human),
                 entry_display
             ));
-            collect_sizes(vfs, &entry_abs, &entry_display, human, output);
+            collect_sizes(vfs, &entry_abs, &entry_display, human, output, host_fs);
         }
     }
 }
@@ -178,7 +178,7 @@ impl super::Command for DuCommand {
         "Estimate disk usage (-h human-readable, -s summary)"
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "du [-h] [-s] [path]"

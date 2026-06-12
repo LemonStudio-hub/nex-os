@@ -53,7 +53,7 @@ use crate::vfs::Vfs;
 /// `Ok(sorted_output)` with lines joined by newlines, or `Err` if the
 /// file argument is missing, the file does not exist, or too many
 /// arguments are provided.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let mut reverse = false;
     let mut file_path: Option<&str> = None;
 
@@ -71,7 +71,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     let path = file_path.ok_or("sort: missing file operand")?;
     let resolved = vfs.resolve_path(path)?;
-    let content = vfs.read_file(&resolved)?;
+    let content = vfs.read_file_with_host(&resolved, host_fs)?;
 
     // Split into lines, sort in-place, then rejoin.
     // `sort()` uses the default lexicographic (Unicode codepoint) ordering.
@@ -112,7 +112,7 @@ impl super::Command for SortCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "sort [-r] file"
@@ -142,7 +142,7 @@ mod tests {
     /// Lines should be sorted in ascending alphabetical order by default.
     fn basic_sort() {
         let vfs = vfs_with_lines(&["banana", "apple", "cherry"]);
-        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/f.txt"], None).unwrap();
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines[0], "apple");
         assert_eq!(lines[1], "banana");
@@ -153,7 +153,7 @@ mod tests {
     /// With `-r`, lines should be in descending (reverse) order.
     fn reverse_sort() {
         let vfs = vfs_with_lines(&["banana", "apple"]);
-        let out = execute(&vfs, &["-r", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-r", "/tmp/f.txt"], None).unwrap();
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines[0], "banana");
         assert_eq!(lines[1], "apple");
@@ -163,7 +163,7 @@ mod tests {
     /// A single-line file should return that line unchanged.
     fn single_line() {
         let vfs = vfs_with_lines(&["only"]);
-        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/f.txt"], None).unwrap();
         assert_eq!(out.trim(), "only");
     }
 
@@ -172,7 +172,7 @@ mod tests {
     fn empty_file() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/empty.txt", "").unwrap();
-        let out = execute(&vfs, &["/tmp/empty.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/empty.txt"], None).unwrap();
         // Should not crash; output may be empty or a single newline
         let _ = out;
     }
@@ -181,13 +181,13 @@ mod tests {
     /// Omitting the file argument entirely should return an error.
     fn missing_file() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &[]).is_err());
+        assert!(execute(&vfs, &[], None).is_err());
     }
 
     #[test]
     /// Providing two file arguments should return an error.
     fn too_many_args() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["a.txt", "b.txt"]).is_err());
+        assert!(execute(&vfs, &["a.txt", "b.txt"], None).is_err());
     }
 }

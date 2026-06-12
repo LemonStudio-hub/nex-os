@@ -37,7 +37,7 @@ impl TestShell {
     }
 
     fn execute(&mut self, input: &str) -> String {
-        self.service.execute_command(&mut self.state, input)
+        self.service.execute_command(&mut self.state, input, None)
     }
 
     fn get_prompt(&self) -> String {

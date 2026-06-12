@@ -17,6 +17,7 @@ import { createTerminal, setupResize } from './terminal';
 import { loadFromOPFS, saveToOPFS } from './persistence';
 import { runAuth } from './auth';
 import { setupInputHandler, type WasmApi } from './input';
+import { HostFsManager } from './host-fs';
 
 /**
  * Main entry point — called once at the bottom of this file.
@@ -110,6 +111,37 @@ async function main() {
   // 5. Hand off to interactive input handler
   // -----------------------------------------------------------------------
 
+  // -----------------------------------------------------------------------
+  // 5. Host filesystem manager
+  // -----------------------------------------------------------------------
+
+  const hostFsManager = new HostFsManager();
+
+  // Check if there were previously mounted directories that need re-authorization
+  try {
+    const restoredState = JSON.parse(initialState);
+    const mounts = restoredState?.mounts || {};
+    const mountPaths = Object.keys(mounts);
+    if (mountPaths.length > 0) {
+      terminal.writeln(
+        '\x1b[33m[NexOS] Previously mounted directories need re-authorization:\x1b[0m',
+      );
+      for (const vfsPath of mountPaths) {
+        const hostName = mounts[vfsPath] || 'unknown';
+        terminal.writeln(`  ${vfsPath} -> ${hostName}`);
+      }
+      terminal.writeln(
+        'Use the mount button or type "mount <path>" to re-mount.',
+      );
+    }
+  } catch {
+    // Ignore parse errors
+  }
+
+  // -----------------------------------------------------------------------
+  // 6. Hand off to interactive input handler
+  // -----------------------------------------------------------------------
+
   // Display the initial prompt and start listening for keystrokes.
   const prompt = wasm.get_prompt(initialState);
   terminal.write(prompt);
@@ -117,7 +149,7 @@ async function main() {
   // access the incremental-storage WASM functions.
   setupInputHandler(terminal, wasm, initialState, prompt, (stateJson) => {
     saveToOPFS(stateJson, wasm);
-  });
+  }, hostFsManager);
 }
 
 // Kick off the async startup sequence.

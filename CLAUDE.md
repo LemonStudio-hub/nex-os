@@ -53,8 +53,8 @@ npx wrangler pages deploy web/dist/ --project-name=nexos
 
 ### Core Rust Modules (`src/`)
 
-- **`lib.rs`** — WASM entry point. Exports 11 functions: `init`, `init_with_username`, `execute_command`, `get_prompt`, `get_completions`, `get_history`, `get_state_json`, `get_dirty_files_json`, `get_deleted_files_json`, `get_file_content`, `mark_all_dirty`, `get_tree_json`. Holds immutable `Service` in a `thread_local!` `RefCell`. All exports accept `state_json: &str` — the frontend owns and passes state.
-- **`vfs/mod.rs`** — Re-exports `Vfs`, `FsNode`, `FileNode`, `DirNode`, `ChunkedContent`.
+- **`lib.rs`** — WASM entry point. Exports 13 functions: `init`, `init_with_username`, `execute_command`, `get_prompt`, `get_completions`, `get_history`, `get_state_json`, `get_dirty_files_json`, `get_deleted_files_json`, `get_file_content`, `mark_all_dirty`, `get_tree_json`, `register_host_fs`, `unregister_host_fs`. Holds immutable `Service` and `HOST_FS_REGISTRY` in `thread_local!` `RefCell`s. All exports accept `state_json: &str` — the frontend owns and passes state.
+- **`vfs/mod.rs`** — Re-exports `Vfs`, `FsNode`, `FileNode`, `DirNode`, `ChunkedContent`, `HostFs`, `HostEntry`. Submodules: `host_fs` (trait), `host_fs_wasm` (JS callback bridge).
 - **`vfs/node.rs`** — Data types: `FsNode` enum (File/Directory), `FileNode` (name + `ChunkedContent`), `DirNode` (name + HashMap children). `ChunkedContent` provides chunked string storage (64 KiB chunks, 4 KiB inline threshold) with custom serde supporting legacy plain-string and new chunked-object formats.
 - **`vfs/tree.rs`** — `Vfs` struct with path resolution (handles `.`, `..`, `~`), file/directory CRUD, dirty tracking (`dirty_files`/`deleted_files` HashSets, `serde(skip)`), partial-read methods (`read_file_lines`, `file_line_count`, `file_size`), `to_tree_json()` for skeleton-only serialization, and full JSON roundtrip. All paths are absolute strings internally.
 - **`shell/mod.rs`** — `ShellState` (serializable: Vfs + username + hostname + history + env_vars) and `Service` (stateless: Registry only). `Service::execute_command()` handles `&&` chaining and delegates to pipeline/dispatch.
@@ -62,6 +62,26 @@ npx wrangler pages deploy web/dist/ --project-name=nexos
 - **`shell/dispatch.rs`** — `Service::execute_with_stdin()` method. Looks up commands via the Registry and creates a `CommandContext` for execution.
 - **`command/mod.rs`** — `Command` trait (7 methods: `name()`, `description()`, `execute()` required; `accepts_stdin()`, `synopsis()`, `man_description()`, `examples()` with defaults), `CommandContext` struct, `Registry` struct. The registry is built once at service init.
 - **`command/*.rs`** — One file per command. Each exports a bare `execute()` function AND a struct implementing `Command` that delegates to it.
+
+### Host Directory Mounting
+
+NexOS supports mounting real directories from the host machine into the VFS using the browser's File System Access API (`showDirectoryPicker`).
+
+**Architecture:**
+- `src/vfs/host_fs.rs` — `HostFs` trait defining sync FS operations (`list_dir`, `read_file`, `write_file`, `mkdir`, `rm`, etc.)
+- `src/vfs/host_fs_wasm.rs` — `WasmHostFs` struct implementing `HostFs` via `js_sys::Function` callbacks from TypeScript
+- `src/command/mount.rs` — `mount` / `mount -u` command (lists mounts, requests picker, unmounts)
+- `web/host-fs.ts` — `HostFsManager` class managing `FileSystemDirectoryHandle` objects with a pre-cache strategy
+
+**How it works:**
+1. User types `mount /mnt/project` → WASM creates VFS directory and mount metadata, returns `__MOUNT_REQUEST__` marker
+2. Frontend detects marker, calls `showDirectoryPicker()` (user gesture required)
+3. `HostFsManager.mount()` recursively caches directory contents into a `Map<string, string>`
+4. Synchronous callback functions are registered with WASM via `register_host_fs()`
+5. All subsequent VFS operations on mounted paths delegate to `HostFs` through `_with_host` method variants
+6. Writes are queued as async promises and flushed after each command execution
+
+**Key design:** Mount metadata (`Vfs.mounts: HashMap<String, String>`) is serialized with the VFS and survives OPFS persistence. The `FileSystemDirectoryHandle` objects are ephemeral — on page reload, users must re-authorize previously mounted directories.
 
 ### Adding a New Command
 
@@ -73,11 +93,12 @@ The trait metadata (`name()`, `accepts_stdin()`) automatically handles tab compl
 
 ### Frontend (`web/`)
 
-- **`main.ts`** — Bootstrap. Creates terminal, loads WASM, runs auth, restores VFS from OPFS (with migration from legacy to incremental format), hands off to input handler.
+- **`main.ts`** — Bootstrap. Creates terminal, loads WASM, runs auth, restores VFS from OPFS (with migration from legacy to incremental format), creates `HostFsManager`, prompts for re-mount on reload, hands off to input handler.
 - **`terminal.ts`** — Terminal creation (`createTerminal()`), addon loading, resize handling (`setupResize()`).
 - **`persistence.ts`** — OPFS incremental persistence: `loadFromOPFS()` tries new `nexos_tree.json` + `nexos_files/` format, falls back to legacy `vfs_state.json`; `saveToOPFS()` writes only dirty files individually, deletes removed files, saves tree skeleton. Path encoding uses `btoa(encodeURIComponent(path))` with filesystem-safe character replacement.
-- **`input.ts`** — Keyboard input handler (`setupInputHandler()`). Manages input buffer, history, tab completion, command execution. Defines `WasmApi` interface matching all 11 WASM exports. Calls `onSaveState` callback after each command.
+- **`input.ts`** — Keyboard input handler (`setupInputHandler()`). Manages input buffer, history, tab completion, command execution. Defines `WasmApi` interface matching all 13 WASM exports. Detects `__MOUNT_REQUEST__` markers and opens directory picker. Calls `onSaveState` and `hostFsManager.flushWrites()` after each command.
 - **`auth.ts`** — First-time setup vs. returning login flow. Argon2id password hashing (64 MiB memory, 3 iterations, 16-byte salt) via `hash-wasm`. Legacy SHA-256 hashes are transparently migrated to Argon2id on successful login. Credentials stored in OPFS `user_config.json`.
+- **`host-fs.ts`** — `HostFsManager` class: manages `FileSystemDirectoryHandle` objects, pre-caches directory contents for synchronous WASM access, queues async writes for flush after each command.
 - Vite config allows serving from `../pkg/` (the WASM bindings directory).
 
 ### Key Design Decisions

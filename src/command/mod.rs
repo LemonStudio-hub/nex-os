@@ -15,6 +15,7 @@
 //! automatically handle tab completion and pipe stdin routing.
 
 use crate::shell::ShellState;
+use crate::vfs::HostFs;
 
 // ---------------------------------------------------------------------------
 // Command trait
@@ -35,6 +36,9 @@ pub struct CommandContext<'a> {
     pub args: &'a [&'a str],
     /// Reference to the command registry (for introspection by `man`, `help`).
     pub registry: &'a Registry,
+    /// Optional host filesystem adapter for mounted directories.
+    /// When `Some`, VFS operations on mounted paths delegate to this.
+    pub host_fs: Option<&'a dyn HostFs>,
 }
 
 /// A built-in shell command.
@@ -178,6 +182,7 @@ pub mod ln;
 pub mod ls;
 pub mod man;
 pub mod mkdir;
+pub mod mount;
 pub mod mv;
 pub mod pwd;
 pub mod rm;
@@ -257,6 +262,9 @@ fn register_all(commands: &mut Vec<Box<dyn Command>>) {
     // Path utilities
     commands.push(Box::new(basename::BasenameCommand));
     commands.push(Box::new(dirname::DirnameCommand));
+
+    // Mount
+    commands.push(Box::new(mount::MountCommand));
 
     // Documentation
     commands.push(Box::new(man::ManCommand));

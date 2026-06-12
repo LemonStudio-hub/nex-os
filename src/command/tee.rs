@@ -23,7 +23,7 @@
 //! echo x | tee /tmp/a.txt /tmp/b.txt     # write to multiple files
 //! ```
 
-use crate::vfs::Vfs;
+use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `tee` command against the virtual filesystem.
 ///
@@ -37,12 +37,13 @@ use crate::vfs::Vfs;
 /// * `input` -- The stdin data to tee (typically piped from a prior command).
 /// * `args` -- Slice of argument strings: optional `-a` flag followed by one
 ///   or more file paths.
+/// * `host_fs` -- Optional host filesystem adapter for mounted directories.
 ///
 /// # Returns
 ///
 /// `Ok(input)` -- the input is passed through unchanged to stdout, or `Err`
 /// if no file operand is given or a write fails.
-pub fn execute(vfs: &mut Vfs, input: &str, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &mut Vfs, input: &str, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
     let mut append = false;
     let mut files: Vec<&str> = Vec::new();
 
@@ -64,11 +65,11 @@ pub fn execute(vfs: &mut Vfs, input: &str, args: &[&str]) -> Result<String, Stri
         let write_result = if append {
             // In append mode, read whatever is already there (defaulting to
             // empty for new files) and concatenate the new input.
-            let existing = vfs.read_file(&resolved).unwrap_or_default();
-            vfs.write_file(&resolved, &format!("{}{}", existing, input))
+            let existing = vfs.read_file_with_host(&resolved, host_fs).unwrap_or_default();
+            vfs.write_file_with_host(&resolved, &format!("{}{}", existing, input), host_fs)
         } else {
             // In overwrite mode, simply replace the entire file.
-            vfs.write_file(&resolved, input)
+            vfs.write_file_with_host(&resolved, input, host_fs)
         };
         if let Err(e) = write_result {
             return Err(format!("tee: {}: {}", path, e));
@@ -100,7 +101,7 @@ impl super::Command for TeeCommand {
     /// Entry point called by the shell dispatcher. Passes the mutable VFS,
     /// the raw stdin string, and args through to the standalone [`execute`].
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.stdin, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.stdin, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "echo text | tee [-a] file [file2 ...]"
@@ -122,7 +123,7 @@ mod tests {
     #[test]
     fn write_to_single_file() {
         let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, "hello world", &["/tmp/out.txt"]).unwrap();
+        let out = execute(&mut vfs, "hello world", &["/tmp/out.txt"], None).unwrap();
         // Stdout should be identical to the input.
         assert_eq!(out, "hello world");
         // The file should contain the written content.
@@ -132,7 +133,7 @@ mod tests {
     #[test]
     fn write_to_multiple_files() {
         let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, "data", &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&mut vfs, "data", &["/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         assert_eq!(out, "data");
         // Both files should receive the same content.
         assert_eq!(vfs.read_file("/tmp/a.txt").unwrap(), "data");
@@ -143,7 +144,7 @@ mod tests {
     fn append_mode() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/log.txt", "first\n").unwrap();
-        let out = execute(&mut vfs, "second\n", &["-a", "/tmp/log.txt"]).unwrap();
+        let out = execute(&mut vfs, "second\n", &["-a", "/tmp/log.txt"], None).unwrap();
         assert_eq!(out, "second\n");
         // New content should be appended after existing content.
         assert_eq!(vfs.read_file("/tmp/log.txt").unwrap(), "first\nsecond\n");
@@ -153,7 +154,7 @@ mod tests {
     fn overwrite_mode() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/log.txt", "old").unwrap();
-        let out = execute(&mut vfs, "new", &["/tmp/log.txt"]).unwrap();
+        let out = execute(&mut vfs, "new", &["/tmp/log.txt"], None).unwrap();
         assert_eq!(out, "new");
         // Without -a, the old content is replaced entirely.
         assert_eq!(vfs.read_file("/tmp/log.txt").unwrap(), "new");
@@ -163,13 +164,13 @@ mod tests {
     fn missing_file_operand() {
         let mut vfs = Vfs::new();
         // Calling tee with zero file arguments should fail.
-        assert!(execute(&mut vfs, "data", &[]).is_err());
+        assert!(execute(&mut vfs, "data", &[], None).is_err());
     }
 
     #[test]
     fn empty_input() {
         let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, "", &["/tmp/out.txt"]).unwrap();
+        let out = execute(&mut vfs, "", &["/tmp/out.txt"], None).unwrap();
         // Even empty input should work and produce an empty file.
         assert_eq!(out, "");
         assert_eq!(vfs.read_file("/tmp/out.txt").unwrap(), "");

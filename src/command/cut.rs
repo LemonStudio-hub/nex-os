@@ -50,7 +50,7 @@ use crate::vfs::Vfs;
 /// - Missing file operand.
 /// - Unknown option flag.
 /// - VFS resolution or read errors.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let mut fields: Vec<usize> = Vec::new();
     // Default delimiter is tab, matching POSIX `cut` behaviour.
     let mut delimiter = '\t';
@@ -91,7 +91,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     let path = file_path.ok_or("cut: missing file operand")?;
     let resolved = vfs.resolve_path(path)?;
-    let content = vfs.read_file(&resolved)?;
+    let content = vfs.read_file_with_host(&resolved, host_fs)?;
 
     let mut output = String::new();
     for line in content.lines() {
@@ -133,7 +133,7 @@ impl super::Command for CutCommand {
         true
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "cut -f FIELDS [-d DELIM] file"
@@ -162,14 +162,14 @@ mod tests {
     #[test]
     fn extract_single_field() {
         let vfs = vfs_with_content("a\tb\tc");
-        let out = execute(&vfs, &["-f", "2", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-f", "2", "/tmp/f.txt"], None).unwrap();
         assert!(out.contains("b"));
     }
 
     #[test]
     fn extract_multiple_fields() {
         let vfs = vfs_with_content("a,b,c\nd,e,f");
-        let out = execute(&vfs, &["-f", "1,3", "-d", ",", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-f", "1,3", "-d", ",", "/tmp/f.txt"], None).unwrap();
         assert!(out.contains("a,c"));
         assert!(out.contains("d,f"));
     }
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn out_of_range_field_skipped() {
         let vfs = vfs_with_content("a,b");
-        let out = execute(&vfs, &["-f", "1,5", "-d", ",", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-f", "1,5", "-d", ",", "/tmp/f.txt"], None).unwrap();
         assert!(out.contains("a"));
         assert!(!out.contains("5"));
     }
@@ -185,19 +185,19 @@ mod tests {
     #[test]
     fn missing_f_flag() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["/tmp/f.txt"]).is_err());
+        assert!(execute(&vfs, &["/tmp/f.txt"], None).is_err());
     }
 
     #[test]
     fn missing_file() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["-f", "1"]).is_err());
+        assert!(execute(&vfs, &["-f", "1"], None).is_err());
     }
 
     #[test]
     fn default_delimiter_is_tab() {
         let vfs = vfs_with_content("x\ty\tz");
-        let out = execute(&vfs, &["-f", "1,3", "/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["-f", "1,3", "/tmp/f.txt"], None).unwrap();
         assert!(out.contains("x"));
         assert!(out.contains("z"));
     }

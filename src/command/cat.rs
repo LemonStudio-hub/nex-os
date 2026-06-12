@@ -37,7 +37,7 @@ use crate::vfs::Vfs;
 ///
 /// Propagates VFS resolution/read errors, or returns a descriptive error for
 /// missing files, directories, and empty argument lists.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     if args.is_empty() {
         return Err("cat: missing file operand".to_string());
     }
@@ -48,16 +48,16 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
         // Resolve relative paths, `..`, `~`, etc. into absolute VFS paths.
         let resolved = vfs.resolve_path(path)?;
 
-        if !vfs.exists(&resolved) {
+        if !vfs.exists_with_host(&resolved, host_fs).unwrap_or(false) {
             return Err(format!("cat: {}: No such file or directory", path));
         }
 
         // Directories are rejected -- they have no single "content" to display.
-        if vfs.is_dir(&resolved) {
+        if vfs.is_dir_with_host(&resolved, host_fs).unwrap_or(false) {
             return Err(format!("cat: {}: Is a directory", path));
         }
 
-        let content = vfs.read_file(&resolved)?;
+        let content = vfs.read_file_with_host(&resolved, host_fs)?;
         output.push_str(&content);
         // Guarantee a trailing newline so consecutive file contents don't merge
         // on the same line and piped output stays well-formed.
@@ -87,7 +87,7 @@ impl super::Command for CatCommand {
         true
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "cat file [file2 ...]"
@@ -110,7 +110,7 @@ mod tests {
     fn read_single_file() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/f.txt", "hello").unwrap();
-        let out = execute(&vfs, &["/tmp/f.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/f.txt"], None).unwrap();
         assert!(out.contains("hello"));
     }
 
@@ -119,7 +119,7 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/a.txt", "AAA").unwrap();
         vfs.write_file("/tmp/b.txt", "BBB").unwrap();
-        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"]).unwrap();
+        let out = execute(&vfs, &["/tmp/a.txt", "/tmp/b.txt"], None).unwrap();
         assert!(out.contains("AAA"));
         assert!(out.contains("BBB"));
     }
@@ -127,18 +127,18 @@ mod tests {
     #[test]
     fn nonexistent_file_errors() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["/nope"]).is_err());
+        assert!(execute(&vfs, &["/nope"], None).is_err());
     }
 
     #[test]
     fn directory_errors() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &["/home"]).is_err());
+        assert!(execute(&vfs, &["/home"], None).is_err());
     }
 
     #[test]
     fn missing_operand() {
         let vfs = Vfs::new();
-        assert!(execute(&vfs, &[]).is_err());
+        assert!(execute(&vfs, &[], None).is_err());
     }
 }

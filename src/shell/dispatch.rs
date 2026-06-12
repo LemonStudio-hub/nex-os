@@ -6,6 +6,7 @@
 
 use crate::command::CommandContext;
 use crate::shell::{Service, ShellState};
+use crate::vfs::HostFs;
 
 impl Service {
     /// Execute a single command string with optional stdin from a preceding
@@ -25,6 +26,7 @@ impl Service {
         state: &mut ShellState,
         input: &str,
         stdin: &str,
+        host_fs: Option<&dyn HostFs>,
     ) -> Result<String, String> {
         let tokens: Vec<&str> = input.split_whitespace().collect();
         if tokens.is_empty() {
@@ -57,6 +59,7 @@ impl Service {
             stdin,
             args: &effective_args,
             registry: &self.registry,
+            host_fs,
         };
 
         command.execute(&mut ctx)

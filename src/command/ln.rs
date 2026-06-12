@@ -37,7 +37,7 @@
 //! * Target does not exist.
 //! * Hard-linking a directory is not supported.
 
-use crate::vfs::Vfs;
+use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `ln` command.
 ///
@@ -45,16 +45,20 @@ use crate::vfs::Vfs;
 /// creates either a symbolic link file or a content copy depending on whether
 /// `-s` was supplied.
 ///
+/// Note: Links across mount boundaries are not supported; this command
+/// operates on the in-memory VFS only.
+///
 /// # Arguments
 ///
 /// * `vfs` -- Mutable reference to the virtual file system.
 /// * `args` -- Command-line arguments (flags + positional tokens).
+/// * `_host_fs` -- Unused; links are not supported across mount boundaries.
 ///
 /// # Returns
 ///
 /// `Ok(String::new())` on success (ln produces no output), or an
 /// `Err(message)` describing what went wrong.
-pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &mut Vfs, args: &[&str], _host_fs: Option<&dyn HostFs>) -> Result<String, String> {
     let mut symbolic = false;
     let mut positional: Vec<&str> = Vec::new();
 
@@ -123,7 +127,7 @@ impl super::Command for LnCommand {
 
     /// Execute the command, forwarding the VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
     }
 
     fn synopsis(&self) -> &'static str {
@@ -148,7 +152,7 @@ mod tests {
     fn symbolic_link() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/target.txt", "content").unwrap();
-        execute(&mut vfs, &["-s", "/tmp/target.txt", "/tmp/link.txt"]).unwrap();
+        execute(&mut vfs, &["-s", "/tmp/target.txt", "/tmp/link.txt"], None).unwrap();
         let out = vfs.read_file("/tmp/link.txt").unwrap();
         assert!(out.contains("-> /tmp/target.txt"));
     }
@@ -158,7 +162,7 @@ mod tests {
     fn hard_link_copies_content() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/src.txt", "data").unwrap();
-        execute(&mut vfs, &["/tmp/src.txt", "/tmp/copy.txt"]).unwrap();
+        execute(&mut vfs, &["/tmp/src.txt", "/tmp/copy.txt"], None).unwrap();
         assert_eq!(vfs.read_file("/tmp/copy.txt").unwrap(), "data");
     }
 
@@ -166,14 +170,14 @@ mod tests {
     /// Verify that fewer than 2 positional args returns an error.
     fn missing_operand() {
         let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &[]).is_err());
-        assert!(execute(&mut vfs, &["/tmp/a"]).is_err());
+        assert!(execute(&mut vfs, &[], None).is_err());
+        assert!(execute(&mut vfs, &["/tmp/a"], None).is_err());
     }
 
     #[test]
     /// Verify that a non-existent target path produces an error.
     fn nonexistent_target() {
         let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &["/nope", "/tmp/link"]).is_err());
+        assert!(execute(&mut vfs, &["/nope", "/tmp/link"], None).is_err());
     }
 }

@@ -42,7 +42,7 @@ use crate::vfs::Vfs;
 ///
 /// `Ok(String)` with the filtered output, or `Err` if the file operand
 /// is missing or arguments are invalid.
-pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
     let mut show_count = false;
     let mut file_path: Option<&str> = None;
 
@@ -57,7 +57,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
 
     let path = file_path.ok_or("uniq: missing file operand")?;
     let resolved = vfs.resolve_path(path)?;
-    let content = vfs.read_file(&resolved)?;
+    let content = vfs.read_file_with_host(&resolved, host_fs)?;
 
     let mut output = String::new();
     let mut prev: Option<&str> = None;
@@ -125,7 +125,7 @@ impl super::Command for UniqCommand {
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args)
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "uniq [-c] file"

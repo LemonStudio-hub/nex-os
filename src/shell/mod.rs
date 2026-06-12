@@ -25,7 +25,7 @@ mod dispatch;
 mod pipeline;
 
 use crate::command::Registry;
-use crate::vfs::Vfs;
+use crate::vfs::{HostFs, Vfs};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -136,7 +136,12 @@ impl Service {
     /// Returns `(output, new_state)` — the command output and the modified
     /// state.  See [`ShellState`] for details on what changes between the
     /// input and output state.
-    pub fn execute_command(&self, state: &mut ShellState, input: &str) -> String {
+    pub fn execute_command(
+        &self,
+        state: &mut ShellState,
+        input: &str,
+        host_fs: Option<&dyn HostFs>,
+    ) -> String {
         let input = input.trim();
         if input.is_empty() {
             return String::new();
@@ -169,7 +174,7 @@ impl Service {
             }
 
             // Run the pipeline; only the LAST stage honours redirection
-            match self.run_pipeline(state, &pipe) {
+            match self.run_pipeline(state, &pipe, host_fs) {
                 Ok(result) => {
                     output.push_str(&result);
                 }
@@ -196,23 +201,24 @@ impl Service {
         &self,
         state: &mut ShellState,
         pipeline: &[(String, Option<(String, bool)>)],
+        host_fs: Option<&dyn HostFs>,
     ) -> Result<String, String> {
         let mut current_input = String::new();
 
         for (i, (cmd_part, redirect)) in pipeline.iter().enumerate() {
             let is_last = i == pipeline.len() - 1;
-            let result = self.execute_with_stdin(state, cmd_part, &current_input)?;
+            let result = self.execute_with_stdin(state, cmd_part, &current_input, host_fs)?;
 
             if is_last {
                 // Last stage: handle redirection if present
                 if let Some((target, append)) = redirect {
                     let write_result = if *append {
-                        let existing = state.vfs.read_file(target).unwrap_or_default();
+                        let existing = state.vfs.read_file_with_host(target, host_fs).unwrap_or_default();
                         state
                             .vfs
-                            .write_file(target, &format!("{}{}", existing, result))
+                            .write_file_with_host(target, &format!("{}{}", existing, result), host_fs)
                     } else {
-                        state.vfs.write_file(target, &result)
+                        state.vfs.write_file_with_host(target, &result, host_fs)
                     };
                     write_result?;
                     // When redirecting to a file, produce no terminal output

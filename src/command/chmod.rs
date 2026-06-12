@@ -24,7 +24,7 @@
 //! - Invalid mode string format.
 //! - Any target path does not exist.
 
-use crate::vfs::Vfs;
+use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `chmod` command.
 ///
@@ -32,6 +32,15 @@ use crate::vfs::Vfs;
 /// exists in the VFS.  Non-existent paths produce error lines in the output
 /// rather than aborting the entire command, matching how real `chmod` reports
 /// per-file failures.
+///
+/// Note: chmod modifies VFS metadata only; host filesystem permissions are
+/// not affected.
+///
+/// # Arguments
+///
+/// * `vfs` -- Mutable reference to the virtual file system.
+/// * `args` -- Command-line arguments (mode + file paths).
+/// * `_host_fs` -- Unused; permission changes are VFS-only.
 ///
 /// # Returns
 ///
@@ -42,7 +51,7 @@ use crate::vfs::Vfs;
 ///
 /// Returns immediately (no partial output) if the mode is invalid or the
 /// argument count is too low.
-pub fn execute(vfs: &mut Vfs, args: &[&str]) -> Result<String, String> {
+pub fn execute(vfs: &mut Vfs, args: &[&str], _host_fs: Option<&dyn HostFs>) -> Result<String, String> {
     if args.len() < 2 {
         return Err("chmod: missing operand".to_string());
     }
@@ -124,7 +133,7 @@ impl super::Command for ChmodCommand {
         "Change file permissions (octal or symbolic)"
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args)
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
     }
     fn synopsis(&self) -> &'static str {
         "chmod mode file [file2 ...]"
@@ -149,7 +158,7 @@ mod tests {
     fn valid_octal_3digit() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["755", "/tmp/f.txt"]).unwrap();
+        let out = execute(&mut vfs, &["755", "/tmp/f.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -157,7 +166,7 @@ mod tests {
     fn valid_octal_4digit() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["0644", "/tmp/f.txt"]).unwrap();
+        let out = execute(&mut vfs, &["0644", "/tmp/f.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -165,7 +174,7 @@ mod tests {
     fn valid_symbolic_plus() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["+x", "/tmp/f.txt"]).unwrap();
+        let out = execute(&mut vfs, &["+x", "/tmp/f.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -173,7 +182,7 @@ mod tests {
     fn valid_symbolic_minus() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["-w", "/tmp/f.txt"]).unwrap();
+        let out = execute(&mut vfs, &["-w", "/tmp/f.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -181,7 +190,7 @@ mod tests {
     fn valid_symbolic_with_prefix() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["u+rwx", "/tmp/f.txt"]).unwrap();
+        let out = execute(&mut vfs, &["u+rwx", "/tmp/f.txt"], None).unwrap();
         assert!(out.is_empty());
     }
 
@@ -189,20 +198,20 @@ mod tests {
     fn invalid_mode() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let err = execute(&mut vfs, &["invalid", "/tmp/f.txt"]).unwrap_err();
+        let err = execute(&mut vfs, &["invalid", "/tmp/f.txt"], None).unwrap_err();
         assert!(err.contains("invalid mode"));
     }
 
     #[test]
     fn missing_operand() {
         let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &[]).is_err());
+        assert!(execute(&mut vfs, &[], None).is_err());
     }
 
     #[test]
     fn nonexistent_file_reports_error() {
         let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, &["755", "/nonexistent"]).unwrap();
+        let out = execute(&mut vfs, &["755", "/nonexistent"], None).unwrap();
         assert!(out.contains("No such file or directory"));
     }
 
