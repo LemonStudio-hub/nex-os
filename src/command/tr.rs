@@ -124,17 +124,23 @@ pub struct TrCommand;
 /// stdin-to-argument injection mechanism.
 impl super::Command for TrCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "tr" }
+    fn name(&self) -> &'static str {
+        "tr"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Translate characters from stdin (echo text | tr a-z A-Z)" }
+    fn description(&self) -> &'static str {
+        "Translate characters from stdin (echo text | tr a-z A-Z)"
+    }
 
     /// Entry point called by the shell dispatcher. Passes the raw stdin
     /// string and args to the standalone [`execute`] function.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(ctx.stdin, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "echo text | tr set1 set2" }
+    fn synopsis(&self) -> &'static str {
+        "echo text | tr set1 set2"
+    }
     fn man_description(&self) -> &'static str {
         "Translate characters from stdin by replacing each character found in set1 with the \
 character at the same position in set2. Characters not in set1 are passed through unchanged. \

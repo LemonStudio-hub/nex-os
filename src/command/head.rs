@@ -87,13 +87,21 @@ pub struct HeadCommand;
 /// `accepts_stdin()` returns `true` so the shell automatically feeds
 /// piped input as a file argument.
 impl super::Command for HeadCommand {
-    fn name(&self) -> &'static str { "head" }
-    fn description(&self) -> &'static str { "Display first N lines of a file (-n COUNT)" }
-    fn accepts_stdin(&self) -> bool { true }
+    fn name(&self) -> &'static str {
+        "head"
+    }
+    fn description(&self) -> &'static str {
+        "Display first N lines of a file (-n COUNT)"
+    }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "head [-n COUNT] file" }
+    fn synopsis(&self) -> &'static str {
+        "head [-n COUNT] file"
+    }
     fn man_description(&self) -> &'static str {
         "Display the first N lines of a file to standard output. By default, the first 10 lines \
 are shown. Use the -n flag to specify a different line count; both spaced (-n 5) and compact \

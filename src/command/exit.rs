@@ -44,7 +44,13 @@ impl super::Command for ExitCommand {
     fn execute(&self, _ctx: &mut super::CommandContext) -> Result<String, String> {
         Ok(String::new())
     }
-    fn synopsis(&self) -> &'static str { "exit" }
-    fn man_description(&self) -> &'static str { "Exit the terminal session. In this browser-based environment, exit signals the frontend to display a shutdown message and disable further input rather than killing a process." }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn synopsis(&self) -> &'static str {
+        "exit"
+    }
+    fn man_description(&self) -> &'static str {
+        "Exit the terminal session. In this browser-based environment, exit signals the frontend to display a shutdown message and disable further input rather than killing a process."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

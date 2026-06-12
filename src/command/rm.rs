@@ -105,22 +105,30 @@ pub struct RmCommand;
 /// module-level `execute` function.
 impl super::Command for RmCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "rm" }
+    fn name(&self) -> &'static str {
+        "rm"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Remove files or directories (-r for recursive)" }
+    fn description(&self) -> &'static str {
+        "Remove files or directories (-r for recursive)"
+    }
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "rm [-r] target [target2 ...]" }
+    fn synopsis(&self) -> &'static str {
+        "rm [-r] target [target2 ...]"
+    }
     fn man_description(&self) -> &'static str {
         "Remove one or more files or directories. Without -r, only regular files can be removed; \
 attempting to remove a directory without -r produces an 'Is a directory' error. The -r flag enables \
 recursive removal of directories and all their contents. The variants -rf and -fr are also accepted \
 for convenience."
     }
-    fn examples(&self) -> &'static [&'static str] { &["rm file.txt", "rm -r directory"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["rm file.txt", "rm -r directory"]
+    }
 }

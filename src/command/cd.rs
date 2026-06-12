@@ -70,17 +70,25 @@ pub struct CdCommand;
 /// Delegates to the standalone [`execute`] function, passing the mutable VFS
 /// reference from the context so that `cwd` can be updated.
 impl super::Command for CdCommand {
-    fn name(&self) -> &'static str { "cd" }
-    fn description(&self) -> &'static str { "Change the current directory" }
+    fn name(&self) -> &'static str {
+        "cd"
+    }
+    fn description(&self) -> &'static str {
+        "Change the current directory"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "cd [path]" }
+    fn synopsis(&self) -> &'static str {
+        "cd [path]"
+    }
     fn man_description(&self) -> &'static str {
         "Change the shell's current working directory to the given path. The special path ~ navigates to the home directory (/home/user), \
 .. moves to the parent directory, and / navigates to the filesystem root. \
 With no arguments, cd returns to the home directory. Produces no output on success, matching POSIX behaviour."
     }
-    fn examples(&self) -> &'static [&'static str] { &["cd /tmp", "cd ..", "cd ~"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["cd /tmp", "cd ..", "cd ~"]
+    }
 }

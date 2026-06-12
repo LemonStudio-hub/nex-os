@@ -61,14 +61,24 @@ pub struct DirnameCommand;
 /// Delegates directly to the standalone `execute()` function, passing
 /// through the raw argument slice from the shell context.
 impl super::Command for DirnameCommand {
-    fn name(&self) -> &'static str { "dirname" }
-    fn description(&self) -> &'static str { "Strip filename from path" }
+    fn name(&self) -> &'static str {
+        "dirname"
+    }
+    fn description(&self) -> &'static str {
+        "Strip filename from path"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "dirname path" }
-    fn man_description(&self) -> &'static str { "Strip the filename component from a path, returning only the directory portion. Trailing slashes are stripped before processing. Operates purely on string manipulation without filesystem lookups." }
-    fn examples(&self) -> &'static [&'static str] { &["dirname /home/user/file.txt", "dirname file.txt"] }
+    fn synopsis(&self) -> &'static str {
+        "dirname path"
+    }
+    fn man_description(&self) -> &'static str {
+        "Strip the filename component from a path, returning only the directory portion. Trailing slashes are stripped before processing. Operates purely on string manipulation without filesystem lookups."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &["dirname /home/user/file.txt", "dirname file.txt"]
+    }
 }
 
 #[cfg(test)]

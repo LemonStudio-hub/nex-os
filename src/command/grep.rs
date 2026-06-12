@@ -122,13 +122,21 @@ pub struct GrepCommand;
 /// pipeline stage is automatically appended as a file argument by the
 /// shell's dispatch logic.
 impl super::Command for GrepCommand {
-    fn name(&self) -> &'static str { "grep" }
-    fn description(&self) -> &'static str { "Search for patterns in files (-i case-insensitive, -n line numbers)" }
-    fn accepts_stdin(&self) -> bool { true }
+    fn name(&self) -> &'static str {
+        "grep"
+    }
+    fn description(&self) -> &'static str {
+        "Search for patterns in files (-i case-insensitive, -n line numbers)"
+    }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "grep [-i] [-n] pattern file [file2 ...]" }
+    fn synopsis(&self) -> &'static str {
+        "grep [-i] [-n] pattern file [file2 ...]"
+    }
     fn man_description(&self) -> &'static str {
         "Search for lines matching a pattern in one or more files. The pattern is matched as a \
 substring (not a regular expression). With -i, matching is case-insensitive. With -n, each \
@@ -136,7 +144,11 @@ matching line is prefixed with its 1-based line number. When multiple files are 
 output lines are prefixed with the filename."
     }
     fn examples(&self) -> &'static [&'static str] {
-        &["grep hello file.txt", "grep -i error log.txt", "grep -n TODO *.rs"]
+        &[
+            "grep hello file.txt",
+            "grep -i error log.txt",
+            "grep -n TODO *.rs",
+        ]
     }
 }
 

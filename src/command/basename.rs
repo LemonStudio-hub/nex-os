@@ -71,14 +71,27 @@ pub struct BasenameCommand;
 /// Delegates to the standalone [`execute`] function, forwarding only the
 /// positional arguments (no VFS access needed).
 impl super::Command for BasenameCommand {
-    fn name(&self) -> &'static str { "basename" }
-    fn description(&self) -> &'static str { "Strip directory from filename" }
+    fn name(&self) -> &'static str {
+        "basename"
+    }
+    fn description(&self) -> &'static str {
+        "Strip directory from filename"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "basename path [suffix]" }
-    fn man_description(&self) -> &'static str { "Strip directory components and optional trailing suffix from a file path. Prints the last component of the path after removing everything up to and including the final slash. If a suffix argument is provided and matches the end of the component, it is also stripped." }
-    fn examples(&self) -> &'static [&'static str] { &["basename /home/user/file.txt", "basename /home/user/file.txt .txt"] }
+    fn synopsis(&self) -> &'static str {
+        "basename path [suffix]"
+    }
+    fn man_description(&self) -> &'static str {
+        "Strip directory components and optional trailing suffix from a file path. Prints the last component of the path after removing everything up to and including the final slash. If a suffix argument is provided and matches the end of the component, it is also stripped."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[
+            "basename /home/user/file.txt",
+            "basename /home/user/file.txt .txt",
+        ]
+    }
 }
 
 #[cfg(test)]

@@ -51,17 +51,23 @@ pub struct PwdCommand;
 /// module-level `execute` function.
 impl super::Command for PwdCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "pwd" }
+    fn name(&self) -> &'static str {
+        "pwd"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Print the current working directory" }
+    fn description(&self) -> &'static str {
+        "Print the current working directory"
+    }
 
     /// Execute the command, forwarding the VFS from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs)
     }
 
-    fn synopsis(&self) -> &'static str { "pwd" }
+    fn synopsis(&self) -> &'static str {
+        "pwd"
+    }
     fn man_description(&self) -> &'static str {
         "Print the absolute path of the shell's current working directory, followed by a newline. \
 The working directory is stored in the VFS and is updated by the cd command. Takes no arguments or flags."

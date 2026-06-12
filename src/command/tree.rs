@@ -75,7 +75,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     build_tree(
         vfs,
         &resolved,
-        "",         // no prefix for the root level
+        "", // no prefix for the root level
         &mut output,
         &mut dir_count,
         &mut file_count,
@@ -172,10 +172,14 @@ pub struct TreeCommand;
 /// piped input.
 impl super::Command for TreeCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "tree" }
+    fn name(&self) -> &'static str {
+        "tree"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Display directory tree structure" }
+    fn description(&self) -> &'static str {
+        "Display directory tree structure"
+    }
 
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
@@ -183,11 +187,15 @@ impl super::Command for TreeCommand {
         execute(&ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "tree [path]" }
+    fn synopsis(&self) -> &'static str {
+        "tree [path]"
+    }
     fn man_description(&self) -> &'static str {
         "Recursively display the contents of a directory in a tree-like format using box-drawing characters. \
 When called without arguments, displays the tree rooted at the current working directory. \
 Entries within each directory are sorted alphabetically. A summary line at the end reports the total number of directories and files."
     }
-    fn examples(&self) -> &'static [&'static str] { &["tree", "tree /home"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["tree", "tree /home"]
+    }
 }

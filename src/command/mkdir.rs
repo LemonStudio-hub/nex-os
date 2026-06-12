@@ -131,21 +131,29 @@ pub struct MkdirCommand;
 /// module-level `execute` function.
 impl super::Command for MkdirCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "mkdir" }
+    fn name(&self) -> &'static str {
+        "mkdir"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Create directories (-p for recursive)" }
+    fn description(&self) -> &'static str {
+        "Create directories (-p for recursive)"
+    }
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "mkdir [-p] directory [directory2 ...]" }
+    fn synopsis(&self) -> &'static str {
+        "mkdir [-p] directory [directory2 ...]"
+    }
     fn man_description(&self) -> &'static str {
         "Create one or more new directories at the specified paths. Without -p, the parent directory must already exist \
 and the target must not already exist. With -p, parent directories are created as needed and already-existing \
 directories are silently skipped, making it safe for creating deep directory trees in a single call."
     }
-    fn examples(&self) -> &'static [&'static str] { &["mkdir test", "mkdir -p path/to/dir"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["mkdir test", "mkdir -p path/to/dir"]
+    }
 }

@@ -73,19 +73,27 @@ pub struct CpCommand;
 /// Delegates to the standalone [`execute`] function, forwarding the mutable
 /// VFS reference needed for the copy operation.
 impl super::Command for CpCommand {
-    fn name(&self) -> &'static str { "cp" }
-    fn description(&self) -> &'static str { "Copy files or directories" }
+    fn name(&self) -> &'static str {
+        "cp"
+    }
+    fn description(&self) -> &'static str {
+        "Copy files or directories"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "cp source destination" }
+    fn synopsis(&self) -> &'static str {
+        "cp source destination"
+    }
     fn man_description(&self) -> &'static str {
         "Copy a file or directory from source to destination. If the destination is an existing directory, \
 the source is copied into that directory preserving its original name. The source file remains intact \
 after the copy operation."
     }
-    fn examples(&self) -> &'static [&'static str] { &["cp file.txt backup.txt", "cp file.txt /tmp/"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["cp file.txt backup.txt", "cp file.txt /tmp/"]
+    }
 }
 
 #[cfg(test)]

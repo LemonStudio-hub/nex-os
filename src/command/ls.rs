@@ -140,24 +140,32 @@ pub struct LsCommand;
 /// module-level `execute` function.
 impl super::Command for LsCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "ls" }
+    fn name(&self) -> &'static str {
+        "ls"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "List directory contents (-l for long format)" }
+    fn description(&self) -> &'static str {
+        "List directory contents (-l for long format)"
+    }
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "ls [-l] [path]" }
+    fn synopsis(&self) -> &'static str {
+        "ls [-l] [path]"
+    }
     fn man_description(&self) -> &'static str {
         "List the contents of a directory. If no path is given, the current working directory is used. \
 If the path points to a regular file rather than a directory, just that file's name is printed. \
 Entries are sorted alphabetically and directories are shown with a trailing /. \
 The -l flag enables long format output, which prefixes each entry with a type indicator: 'd' for directories and '-' for regular files."
     }
-    fn examples(&self) -> &'static [&'static str] { &["ls", "ls -l /home", "ls -l .."] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["ls", "ls -l /home", "ls -l .."]
+    }
 }
 
 #[cfg(test)]

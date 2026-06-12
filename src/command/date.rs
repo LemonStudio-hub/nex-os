@@ -60,12 +60,22 @@ pub struct DateCommand;
 /// Delegates to the standalone [`execute`] function.  The `CommandContext` is
 /// ignored entirely -- `date` needs no VFS, args, or other shell state.
 impl super::Command for DateCommand {
-    fn name(&self) -> &'static str { "date" }
-    fn description(&self) -> &'static str { "Display the current date and time" }
+    fn name(&self) -> &'static str {
+        "date"
+    }
+    fn description(&self) -> &'static str {
+        "Display the current date and time"
+    }
     fn execute(&self, _ctx: &mut super::CommandContext) -> Result<String, String> {
         execute()
     }
-    fn synopsis(&self) -> &'static str { "date" }
-    fn man_description(&self) -> &'static str { "Display the current date and time in ISO-8601 format. On WASM targets, the output comes from the browser's Date object. On native targets, it falls back to seconds since the Unix epoch." }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn synopsis(&self) -> &'static str {
+        "date"
+    }
+    fn man_description(&self) -> &'static str {
+        "Display the current date and time in ISO-8601 format. On WASM targets, the output comes from the browser's Date object. On native targets, it falls back to seconds since the Unix epoch."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

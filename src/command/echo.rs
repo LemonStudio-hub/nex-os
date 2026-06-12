@@ -39,12 +39,18 @@ pub struct EchoCommand;
 
 /// Registers `echo` with the command system.
 impl super::Command for EchoCommand {
-    fn name(&self) -> &'static str { "echo" }
-    fn description(&self) -> &'static str { "Display a line of text" }
+    fn name(&self) -> &'static str {
+        "echo"
+    }
+    fn description(&self) -> &'static str {
+        "Display a line of text"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "echo text" }
+    fn synopsis(&self) -> &'static str {
+        "echo text"
+    }
     fn man_description(&self) -> &'static str {
         "Display a line of text to standard output. Arguments are joined with spaces and a \
 trailing newline is appended. With no arguments, prints an empty line. Shell redirection \

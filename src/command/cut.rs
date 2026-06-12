@@ -123,13 +123,21 @@ pub struct CutCommand;
 /// pipeline layer can feed stdin from a preceding stage as a temporary file
 /// argument when no explicit file is given.
 impl super::Command for CutCommand {
-    fn name(&self) -> &'static str { "cut" }
-    fn description(&self) -> &'static str { "Extract fields from each line (-f FIELDS -d DELIM)" }
-    fn accepts_stdin(&self) -> bool { true }
+    fn name(&self) -> &'static str {
+        "cut"
+    }
+    fn description(&self) -> &'static str {
+        "Extract fields from each line (-f FIELDS -d DELIM)"
+    }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "cut -f FIELDS [-d DELIM] file" }
+    fn synopsis(&self) -> &'static str {
+        "cut -f FIELDS [-d DELIM] file"
+    }
     fn man_description(&self) -> &'static str {
         "Extract selected fields from each line of a file. The -f flag (required) specifies \
 a comma-separated list of 1-indexed field numbers to extract. The -d flag sets the \

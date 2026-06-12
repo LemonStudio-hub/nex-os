@@ -379,7 +379,7 @@ impl Vfs {
                 self.mark_deleted(path);
             }
             FsNode::Directory(dir) => {
-                self.mark_deleted_recursive(&path, &dir);
+                self.mark_deleted_recursive(path, &dir);
             }
         }
 
@@ -391,7 +391,7 @@ impl Vfs {
     /// Returns `Err` if the path does not exist or points to a directory.
     pub fn read_file(&self, path: &str) -> Result<String, String> {
         match self.get_node_at(path) {
-            Some(FsNode::File(f)) => Ok(f.content.to_string()),
+            Some(FsNode::File(f)) => Ok(f.content.as_string()),
             Some(FsNode::Directory(_)) => {
                 Err(format!("cat: {}: Is a directory", path_display_name(path)))
             }
@@ -411,7 +411,7 @@ impl Vfs {
     pub fn write_file(&mut self, path: &str, content: &str) -> Result<String, String> {
         // If file already exists, update in place
         if let Some(FsNode::File(f)) = self.get_node_at_mut(path) {
-            f.content = ChunkedContent::from_str(content);
+            f.content = ChunkedContent::from_string(content);
             self.mark_dirty(path);
             return Ok(String::new());
         }
@@ -429,7 +429,7 @@ impl Vfs {
             name.clone(),
             FsNode::File(FileNode {
                 name,
-                content: ChunkedContent::from_str(content),
+                content: ChunkedContent::from_string(content),
             }),
         );
         self.mark_dirty(path);
@@ -1082,14 +1082,18 @@ mod tests {
     fn write_file_marks_dirty() {
         let mut vfs = Vfs::new();
         vfs.write_file("/home/user/f.txt", "data").unwrap();
-        assert!(vfs.get_dirty_files().contains(&"/home/user/f.txt".to_string()));
+        assert!(vfs
+            .get_dirty_files()
+            .contains(&"/home/user/f.txt".to_string()));
     }
 
     #[test]
     fn touch_marks_dirty() {
         let mut vfs = Vfs::new();
         vfs.touch("/home/user/f.txt").unwrap();
-        assert!(vfs.get_dirty_files().contains(&"/home/user/f.txt".to_string()));
+        assert!(vfs
+            .get_dirty_files()
+            .contains(&"/home/user/f.txt".to_string()));
     }
 
     #[test]
@@ -1098,7 +1102,9 @@ mod tests {
         vfs.write_file("/home/user/f.txt", "data").unwrap();
         vfs.mark_clean(); // clear dirty from write
         vfs.rm("/home/user/f.txt").unwrap();
-        assert!(vfs.get_deleted_files().contains(&"/home/user/f.txt".to_string()));
+        assert!(vfs
+            .get_deleted_files()
+            .contains(&"/home/user/f.txt".to_string()));
     }
 
     #[test]
@@ -1129,8 +1135,12 @@ mod tests {
         vfs.write_file("/home/user/src.txt", "data").unwrap();
         vfs.mark_clean();
         vfs.mv("/home/user/src.txt", "/tmp/moved.txt").unwrap();
-        assert!(vfs.get_dirty_files().contains(&"/tmp/moved.txt".to_string()));
-        assert!(vfs.get_deleted_files().contains(&"/home/user/src.txt".to_string()));
+        assert!(vfs
+            .get_dirty_files()
+            .contains(&"/tmp/moved.txt".to_string()));
+        assert!(vfs
+            .get_deleted_files()
+            .contains(&"/home/user/src.txt".to_string()));
     }
 
     #[test]

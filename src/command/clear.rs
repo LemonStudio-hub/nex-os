@@ -37,7 +37,13 @@ impl super::Command for ClearCommand {
         // \x1b[H   = Move cursor to home position (row 1, col 1)
         Ok("\x1b[2J\x1b[H".to_string())
     }
-    fn synopsis(&self) -> &'static str { "clear" }
-    fn man_description(&self) -> &'static str { "Clear the terminal screen by returning ANSI escape sequences that erase the entire visible display and move the cursor to the top-left position. The actual clearing is performed by the terminal emulator (xterm.js)." }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn synopsis(&self) -> &'static str {
+        "clear"
+    }
+    fn man_description(&self) -> &'static str {
+        "Clear the terminal screen by returning ANSI escape sequences that erase the entire visible display and move the cursor to the top-left position. The actual clearing is performed by the terminal emulator (xterm.js)."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

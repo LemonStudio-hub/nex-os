@@ -88,17 +88,23 @@ pub struct TeeCommand;
 /// rather than through the implicit stdin-to-argument injection.
 impl super::Command for TeeCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "tee" }
+    fn name(&self) -> &'static str {
+        "tee"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Write stdin to stdout and files (-a for append)" }
+    fn description(&self) -> &'static str {
+        "Write stdin to stdout and files (-a for append)"
+    }
 
     /// Entry point called by the shell dispatcher. Passes the mutable VFS,
     /// the raw stdin string, and args through to the standalone [`execute`].
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.stdin, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "echo text | tee [-a] file [file2 ...]" }
+    fn synopsis(&self) -> &'static str {
+        "echo text | tee [-a] file [file2 ...]"
+    }
     fn man_description(&self) -> &'static str {
         "Read from stdin and write the input to both stdout and one or more files simultaneously, \
 acting as a T-splitter in a pipeline. By default each file is overwritten. With -a, the input \

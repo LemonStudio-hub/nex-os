@@ -77,14 +77,24 @@ pub struct ExportCommand;
 
 /// Registers `export` with the command system.
 impl super::Command for ExportCommand {
-    fn name(&self) -> &'static str { "export" }
-    fn description(&self) -> &'static str { "Set environment variables (export KEY=VALUE)" }
+    fn name(&self) -> &'static str {
+        "export"
+    }
+    fn description(&self) -> &'static str {
+        "Set environment variables (export KEY=VALUE)"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.env_vars, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "export KEY=VALUE" }
-    fn man_description(&self) -> &'static str { "Set environment variables in the shell session. When called without arguments, lists all exported variables in declare -x format. Values may contain = characters; only the first = is treated as the key-value separator. A bare key without = sets the variable to an empty string." }
-    fn examples(&self) -> &'static [&'static str] { &["export PATH=/usr/bin", "export EDITOR=vim"] }
+    fn synopsis(&self) -> &'static str {
+        "export KEY=VALUE"
+    }
+    fn man_description(&self) -> &'static str {
+        "Set environment variables in the shell session. When called without arguments, lists all exported variables in declare -x format. Values may contain = characters; only the first = is treated as the key-value separator. A bare key without = sets the variable to an empty string."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &["export PATH=/usr/bin", "export EDITOR=vim"]
+    }
 }
 
 #[cfg(test)]

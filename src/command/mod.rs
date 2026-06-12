@@ -123,7 +123,10 @@ impl Registry {
     ///
     /// Returns `None` if no command with that name is registered.
     pub fn get(&self, name: &str) -> Option<&dyn Command> {
-        self.commands.iter().find(|c| c.name() == name).map(|c| &**c)
+        self.commands
+            .iter()
+            .find(|c| c.name() == name)
+            .map(|c| &**c)
     }
 
     /// Return a slice of all registered commands.

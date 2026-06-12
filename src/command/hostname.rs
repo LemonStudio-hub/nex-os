@@ -48,16 +48,26 @@ pub struct HostnameCommand;
 /// to the module-level `execute` function.
 impl super::Command for HostnameCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "hostname" }
+    fn name(&self) -> &'static str {
+        "hostname"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Display the system hostname" }
+    fn description(&self) -> &'static str {
+        "Display the system hostname"
+    }
 
     /// Execute the command, forwarding the hostname from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.hostname)
     }
-    fn synopsis(&self) -> &'static str { "hostname" }
-    fn man_description(&self) -> &'static str { "Display the hostname of the virtual NexOS system. The hostname is configured during shell initialization and stored in the shell state." }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn synopsis(&self) -> &'static str {
+        "hostname"
+    }
+    fn man_description(&self) -> &'static str {
+        "Display the hostname of the virtual NexOS system. The hostname is configured during shell initialization and stored in the shell state."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

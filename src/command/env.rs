@@ -50,14 +50,24 @@ pub struct EnvCommand;
 ///
 /// Passes a shared (immutable) reference to the environment map.
 impl super::Command for EnvCommand {
-    fn name(&self) -> &'static str { "env" }
-    fn description(&self) -> &'static str { "Display environment variables" }
+    fn name(&self) -> &'static str {
+        "env"
+    }
+    fn description(&self) -> &'static str {
+        "Display environment variables"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         // Dereference the mutable borrow to get an immutable reference,
         // since `env` only reads the environment and never modifies it.
         execute(&ctx.state.env_vars)
     }
-    fn synopsis(&self) -> &'static str { "env" }
-    fn man_description(&self) -> &'static str { "Display all environment variables currently defined in the shell session as KEY=VALUE pairs, one per line. Variables are sorted alphabetically for deterministic output. This is a read-only command; use export to set variables." }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn synopsis(&self) -> &'static str {
+        "env"
+    }
+    fn man_description(&self) -> &'static str {
+        "Display all environment variables currently defined in the shell session as KEY=VALUE pairs, one per line. Variables are sorted alphabetically for deterministic output. This is a read-only command; use export to set variables."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

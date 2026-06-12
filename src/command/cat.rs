@@ -77,13 +77,21 @@ pub struct CatCommand;
 /// pipeline layer can feed stdin from a preceding stage as a temporary file
 /// argument when no explicit file is given.
 impl super::Command for CatCommand {
-    fn name(&self) -> &'static str { "cat" }
-    fn description(&self) -> &'static str { "Display file contents" }
-    fn accepts_stdin(&self) -> bool { true }
+    fn name(&self) -> &'static str {
+        "cat"
+    }
+    fn description(&self) -> &'static str {
+        "Display file contents"
+    }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "cat file [file2 ...]" }
+    fn synopsis(&self) -> &'static str {
+        "cat file [file2 ...]"
+    }
     fn man_description(&self) -> &'static str {
         "Concatenate and display the contents of one or more files to standard output. \
 Multiple files are read in order and their contents are concatenated without any separator. \

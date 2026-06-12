@@ -138,22 +138,30 @@ pub struct WcCommand;
 /// when no file argument is provided.
 impl super::Command for WcCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "wc" }
+    fn name(&self) -> &'static str {
+        "wc"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Count lines, words, and characters (-l -w -c)" }
+    fn description(&self) -> &'static str {
+        "Count lines, words, and characters (-l -w -c)"
+    }
 
     /// Declares that this command can accept piped stdin. The shell uses
     /// this to route stdin content as a file argument when no explicit
     /// path is given on the command line.
-    fn accepts_stdin(&self) -> bool { true }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
 
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "wc [-l] [-w] [-c] file [file2 ...]" }
+    fn synopsis(&self) -> &'static str {
+        "wc [-l] [-w] [-c] file [file2 ...]"
+    }
     fn man_description(&self) -> &'static str {
         "Count lines, words, and characters in one or more files. By default all three counts \
 are displayed. Use -l to show only lines, -w to show only words, or -c to show only \

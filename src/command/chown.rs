@@ -64,14 +64,24 @@ pub struct ChownCommand;
 /// Delegates to the standalone [`execute`] function.  Does not need VFS access
 /// because ownership is purely simulated.
 impl super::Command for ChownCommand {
-    fn name(&self) -> &'static str { "chown" }
-    fn description(&self) -> &'static str { "Change file ownership (owner[:group])" }
+    fn name(&self) -> &'static str {
+        "chown"
+    }
+    fn description(&self) -> &'static str {
+        "Change file ownership (owner[:group])"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "chown owner[:group] file [file2 ...]" }
-    fn man_description(&self) -> &'static str { "Change file ownership (simulated). The owner specification can be a plain username or username:group format. Since the VFS has no real ownership system, the command validates argument format and silently succeeds without persisting any metadata." }
-    fn examples(&self) -> &'static [&'static str] { &["chown alice file.txt", "chown alice:staff file.txt"] }
+    fn synopsis(&self) -> &'static str {
+        "chown owner[:group] file [file2 ...]"
+    }
+    fn man_description(&self) -> &'static str {
+        "Change file ownership (simulated). The owner specification can be a plain username or username:group format. Since the VFS has no real ownership system, the command validates argument format and silently succeeds without persisting any metadata."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &["chown alice file.txt", "chown alice:staff file.txt"]
+    }
 }
 
 #[cfg(test)]

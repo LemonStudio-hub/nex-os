@@ -107,21 +107,29 @@ pub struct UniqCommand;
 /// injecting stdin content as a pseudo-file argument when needed.
 impl super::Command for UniqCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "uniq" }
+    fn name(&self) -> &'static str {
+        "uniq"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Filter adjacent duplicate lines (-c for counts)" }
+    fn description(&self) -> &'static str {
+        "Filter adjacent duplicate lines (-c for counts)"
+    }
 
     /// Declares that this command can accept piped stdin. The shell uses this
     /// to route stdin content as a file argument when no explicit path is given.
-    fn accepts_stdin(&self) -> bool { true }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
 
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "uniq [-c] file" }
+    fn synopsis(&self) -> &'static str {
+        "uniq [-c] file"
+    }
     fn man_description(&self) -> &'static str {
         "Filter adjacent duplicate lines from a file, collapsing consecutive identical lines \
 into a single line. Only truly adjacent duplicates are removed; identical lines separated by \

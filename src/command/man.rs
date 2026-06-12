@@ -79,7 +79,11 @@ fn build_man_page(command: &dyn crate::command::Command) -> String {
     let examples = command.examples();
 
     let mut page = format!("{}(1)\n\n", upper_name);
-    page.push_str(&format!("NAME\n    {} - {}\n\n", name, command.description()));
+    page.push_str(&format!(
+        "NAME\n    {} - {}\n\n",
+        name,
+        command.description()
+    ));
     page.push_str(&format!("SYNOPSIS\n    {}\n\n", synopsis));
     page.push_str(&format!("DESCRIPTION\n    {}\n", desc));
 
@@ -98,16 +102,24 @@ fn build_man_page(command: &dyn crate::command::Command) -> String {
 pub struct ManCommand;
 
 impl super::Command for ManCommand {
-    fn name(&self) -> &'static str { "man" }
-    fn description(&self) -> &'static str { "Display manual page for a command" }
+    fn name(&self) -> &'static str {
+        "man"
+    }
+    fn description(&self) -> &'static str {
+        "Display manual page for a command"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(ctx.registry, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "man command" }
+    fn synopsis(&self) -> &'static str {
+        "man command"
+    }
     fn man_description(&self) -> &'static str {
         "Display a detailed manual page for the specified command, including its name, synopsis, description, and examples. Every registered command has a corresponding manual page."
     }
-    fn examples(&self) -> &'static [&'static str] { &["man ls", "man grep"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["man ls", "man grep"]
+    }
 }
 
 #[cfg(test)]
@@ -152,11 +164,7 @@ mod tests {
         ];
         for cmd in &commands {
             let out = execute(&registry, &[cmd]).unwrap();
-            assert!(
-                !out.contains("no entry"),
-                "Missing man page for: {}",
-                cmd
-            );
+            assert!(!out.contains("no entry"), "Missing man page for: {}", cmd);
         }
     }
 

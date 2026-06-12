@@ -106,14 +106,28 @@ pub struct FindCommand;
 
 /// Registers `find` with the command system.
 impl super::Command for FindCommand {
-    fn name(&self) -> &'static str { "find" }
-    fn description(&self) -> &'static str { "Find files by name (find [path] -name PATTERN)" }
+    fn name(&self) -> &'static str {
+        "find"
+    }
+    fn description(&self) -> &'static str {
+        "Find files by name (find [path] -name PATTERN)"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "find [path] -name pattern" }
-    fn man_description(&self) -> &'static str { "Recursively search for files and directories whose names contain the given substring pattern. If no path is specified, searches from the current working directory. The -name flag is required and must be followed by the pattern string." }
-    fn examples(&self) -> &'static [&'static str] { &["find -name README", "find /home -name .txt", "find . -name config"] }
+    fn synopsis(&self) -> &'static str {
+        "find [path] -name pattern"
+    }
+    fn man_description(&self) -> &'static str {
+        "Recursively search for files and directories whose names contain the given substring pattern. If no path is specified, searches from the current working directory. The -name flag is required and must be followed by the pattern string."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[
+            "find -name README",
+            "find /home -name .txt",
+            "find . -name config",
+        ]
+    }
 }
 
 #[cfg(test)]

@@ -93,22 +93,30 @@ pub struct SortCommand;
 /// module-level `execute` function.
 impl super::Command for SortCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "sort" }
+    fn name(&self) -> &'static str {
+        "sort"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Sort lines of a file (-r for reverse)" }
+    fn description(&self) -> &'static str {
+        "Sort lines of a file (-r for reverse)"
+    }
 
     /// Declares that this command can consume stdin from a pipe.
     ///
     /// When `true`, the pipeline stage writes stdin to a temp file and
     /// appends it as a trailing argument if the user didn't specify one.
-    fn accepts_stdin(&self) -> bool { true }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "sort [-r] file" }
+    fn synopsis(&self) -> &'static str {
+        "sort [-r] file"
+    }
     fn man_description(&self) -> &'static str {
         "Sort lines of a file in lexicographic (Unicode codepoint) order and print the result. \
 With -r, the sort order is reversed so that lines are printed from Z to A. Sorting is \

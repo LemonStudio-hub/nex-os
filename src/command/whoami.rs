@@ -45,10 +45,14 @@ pub struct WhoamiCommand;
 /// reads no files, and does not accept stdin.
 impl super::Command for WhoamiCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "whoami" }
+    fn name(&self) -> &'static str {
+        "whoami"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Display the current username" }
+    fn description(&self) -> &'static str {
+        "Display the current username"
+    }
 
     /// Entry point called by the shell dispatcher. Extracts the username
     /// from the [`super::CommandContext`] and delegates to the standalone
@@ -56,7 +60,13 @@ impl super::Command for WhoamiCommand {
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.username)
     }
-    fn synopsis(&self) -> &'static str { "whoami" }
-    fn man_description(&self) -> &'static str { "Display the username of the currently logged-in user. The username is set during the initial authentication flow and stored in the shell state." }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn synopsis(&self) -> &'static str {
+        "whoami"
+    }
+    fn man_description(&self) -> &'static str {
+        "Display the username of the currently logged-in user. The username is set during the initial authentication flow and stored in the shell state."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

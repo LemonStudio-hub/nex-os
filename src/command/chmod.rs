@@ -117,14 +117,28 @@ pub struct ChmodCommand;
 /// because `resolve_path` may normalise paths, though the VFS itself is not
 /// mutated in this simulated implementation.
 impl super::Command for ChmodCommand {
-    fn name(&self) -> &'static str { "chmod" }
-    fn description(&self) -> &'static str { "Change file permissions (octal or symbolic)" }
+    fn name(&self) -> &'static str {
+        "chmod"
+    }
+    fn description(&self) -> &'static str {
+        "Change file permissions (octal or symbolic)"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "chmod mode file [file2 ...]" }
-    fn man_description(&self) -> &'static str { "Change file permissions (simulated). Accepts octal modes (e.g. 755, 0644) or symbolic modes (e.g. +x, -w, u+r, a+x). Since the VFS has no real permission enforcement, the command validates the mode and checks that files exist but does not persist permission bits." }
-    fn examples(&self) -> &'static [&'static str] { &["chmod 755 script.sh", "chmod +x script.sh", "chmod u+r file.txt"] }
+    fn synopsis(&self) -> &'static str {
+        "chmod mode file [file2 ...]"
+    }
+    fn man_description(&self) -> &'static str {
+        "Change file permissions (simulated). Accepts octal modes (e.g. 755, 0644) or symbolic modes (e.g. +x, -w, u+r, a+x). Since the VFS has no real permission enforcement, the command validates the mode and checks that files exist but does not persist permission bits."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[
+            "chmod 755 script.sh",
+            "chmod +x script.sh",
+            "chmod u+r file.txt",
+        ]
+    }
 }
 
 #[cfg(test)]

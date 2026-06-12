@@ -112,23 +112,31 @@ pub struct LnCommand;
 /// module-level `execute` function.
 impl super::Command for LnCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "ln" }
+    fn name(&self) -> &'static str {
+        "ln"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Create links (-s for symbolic)" }
+    fn description(&self) -> &'static str {
+        "Create links (-s for symbolic)"
+    }
 
     /// Execute the command, forwarding the VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "ln [-s] target link_name" }
+    fn synopsis(&self) -> &'static str {
+        "ln [-s] target link_name"
+    }
     fn man_description(&self) -> &'static str {
         "Create links to files in the virtual filesystem. By default, a hard link is created by copying the target file's \
 content to the link name (the two files are independent). With -s, a symbolic link is created as a small file \
 containing '-> target' notation. Symbolic links are not automatically dereferenced when reading."
     }
-    fn examples(&self) -> &'static [&'static str] { &["ln file.txt link.txt", "ln -s /path/to/file symlink"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["ln file.txt link.txt", "ln -s /path/to/file symlink"]
+    }
 }
 
 #[cfg(test)]

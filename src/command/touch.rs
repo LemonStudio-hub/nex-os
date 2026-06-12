@@ -61,10 +61,14 @@ pub struct TouchCommand;
 /// to `false`.
 impl super::Command for TouchCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "touch" }
+    fn name(&self) -> &'static str {
+        "touch"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Create empty files" }
+    fn description(&self) -> &'static str {
+        "Create empty files"
+    }
 
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
@@ -72,11 +76,15 @@ impl super::Command for TouchCommand {
         execute(&mut ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "touch file [file2 ...]" }
+    fn synopsis(&self) -> &'static str {
+        "touch file [file2 ...]"
+    }
     fn man_description(&self) -> &'static str {
         "Create one or more empty files in the virtual filesystem. If a file already exists, its contents are left \
 unchanged (the simulated timestamp update is a no-op for existing files). Multiple files can be created in a \
 single invocation by listing them as separate arguments."
     }
-    fn examples(&self) -> &'static [&'static str] { &["touch newfile.txt", "touch a.txt b.txt c.txt"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["touch newfile.txt", "touch a.txt b.txt c.txt"]
+    }
 }

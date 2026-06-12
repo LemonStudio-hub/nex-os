@@ -50,7 +50,7 @@ impl ChunkedContent {
     }
 
     /// Build content from a string slice, splitting into chunks as needed.
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_string(s: &str) -> Self {
         if s.is_empty() {
             return Self::new();
         }
@@ -84,7 +84,7 @@ impl ChunkedContent {
     }
 
     /// Concatenate all chunks into a single `String`.
-    pub fn to_string(&self) -> String {
+    pub fn as_string(&self) -> String {
         self.chunks.concat()
     }
 
@@ -132,7 +132,7 @@ impl ChunkedContent {
         // For typical files this is the same allocation read_file already did;
         // for very large files we could optimise further by scanning chunks
         // directly, but the chunk boundary handling is complex.
-        let full = self.to_string();
+        let full = self.as_string();
         full.lines()
             .skip(start_line)
             .take(count)
@@ -164,7 +164,7 @@ impl ChunkedContent {
                         return;
                     }
                     // Fall through to chunk the rest.
-                    let rest = ChunkedContent::from_str(remaining);
+                    let rest = ChunkedContent::from_string(remaining);
                     self.chunks.extend(rest.chunks);
                     self.total_len += rest.total_len;
                     return;
@@ -173,7 +173,7 @@ impl ChunkedContent {
         }
 
         // No last chunk or no room — create fresh chunks.
-        let new = ChunkedContent::from_str(s);
+        let new = ChunkedContent::from_string(s);
         self.total_len += new.total_len;
         self.chunks.extend(new.chunks);
     }
@@ -186,9 +186,7 @@ impl ChunkedContent {
 
     /// Whether the content ends with a newline character.
     fn ends_with_newline(&self) -> bool {
-        self.chunks
-            .last()
-            .map_or(false, |last| last.ends_with('\n'))
+        self.chunks.last().is_some_and(|last| last.ends_with('\n'))
     }
 }
 
@@ -200,7 +198,7 @@ impl Default for ChunkedContent {
 
 impl PartialEq for ChunkedContent {
     fn eq(&self, other: &Self) -> bool {
-        self.total_len == other.total_len && self.to_string() == other.to_string()
+        self.total_len == other.total_len && self.as_string() == other.as_string()
     }
 }
 
@@ -212,7 +210,7 @@ impl Serialize for ChunkedContent {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if self.total_len <= INLINE_THRESHOLD {
             // Small content: plain string (backward-compatible).
-            serializer.serialize_str(&self.to_string())
+            serializer.serialize_str(&self.as_string())
         } else {
             // Large content: structured object.
             let mut state = serializer.serialize_struct("ChunkedContent", 3)?;
@@ -237,12 +235,12 @@ impl<'de> Deserialize<'de> for ChunkedContent {
 
             /// Legacy plain-string format.
             fn visit_str<E: de::Error>(self, v: &str) -> Result<ChunkedContent, E> {
-                Ok(ChunkedContent::from_str(v))
+                Ok(ChunkedContent::from_string(v))
             }
 
             /// Legacy plain-string format (owned).
             fn visit_string<E: de::Error>(self, v: String) -> Result<ChunkedContent, E> {
-                Ok(ChunkedContent::from_str(&v))
+                Ok(ChunkedContent::from_string(&v))
             }
 
             /// Null / missing content → empty.
@@ -376,20 +374,20 @@ impl FsNode {
 mod tests {
     use super::*;
 
-    // -- ChunkedContent::from_str / to_string --------------------------------
+    // -- ChunkedContent::from_string / to_string --------------------------------
 
     #[test]
     fn chunked_empty() {
-        let c = ChunkedContent::from_str("");
+        let c = ChunkedContent::from_string("");
         assert!(c.is_empty());
         assert_eq!(c.len(), 0);
-        assert_eq!(c.to_string(), "");
+        assert_eq!(c.as_string(), "");
     }
 
     #[test]
     fn chunked_short_string() {
-        let c = ChunkedContent::from_str("hello world");
-        assert_eq!(c.to_string(), "hello world");
+        let c = ChunkedContent::from_string("hello world");
+        assert_eq!(c.as_string(), "hello world");
         assert_eq!(c.len(), 11);
         assert_eq!(c.chunks.len(), 1);
     }
@@ -397,17 +395,17 @@ mod tests {
     #[test]
     fn chunked_exact_one_chunk() {
         let s = "x".repeat(CHUNK_SIZE);
-        let c = ChunkedContent::from_str(&s);
+        let c = ChunkedContent::from_string(&s);
         assert_eq!(c.chunks.len(), 1);
-        assert_eq!(c.to_string(), s);
+        assert_eq!(c.as_string(), s);
     }
 
     #[test]
     fn chunked_multiple_chunks() {
         let s = "y".repeat(CHUNK_SIZE * 3 + 100);
-        let c = ChunkedContent::from_str(&s);
+        let c = ChunkedContent::from_string(&s);
         assert_eq!(c.chunks.len(), 4);
-        assert_eq!(c.to_string(), s);
+        assert_eq!(c.as_string(), s);
         assert_eq!(c.len(), s.len());
     }
 
@@ -418,8 +416,8 @@ mod tests {
         // boundary.
         let prefix = "a".repeat(CHUNK_SIZE - 1);
         let s = format!("{}ééé", prefix);
-        let c = ChunkedContent::from_str(&s);
-        assert_eq!(c.to_string(), s);
+        let c = ChunkedContent::from_string(&s);
+        assert_eq!(c.as_string(), s);
         // Ensure no chunk exceeds CHUNK_SIZE.
         for chunk in &c.chunks {
             assert!(chunk.len() <= CHUNK_SIZE);
@@ -435,25 +433,25 @@ mod tests {
 
     #[test]
     fn line_count_single_line_no_newline() {
-        let c = ChunkedContent::from_str("hello");
+        let c = ChunkedContent::from_string("hello");
         assert_eq!(c.line_count(), 1);
     }
 
     #[test]
     fn line_count_trailing_newline() {
-        let c = ChunkedContent::from_str("hello\n");
+        let c = ChunkedContent::from_string("hello\n");
         assert_eq!(c.line_count(), 1);
     }
 
     #[test]
     fn line_count_multiple_lines() {
-        let c = ChunkedContent::from_str("a\nb\nc\n");
+        let c = ChunkedContent::from_string("a\nb\nc\n");
         assert_eq!(c.line_count(), 3);
     }
 
     #[test]
     fn line_count_no_trailing_newline() {
-        let c = ChunkedContent::from_str("a\nb\nc");
+        let c = ChunkedContent::from_string("a\nb\nc");
         assert_eq!(c.line_count(), 3);
     }
 
@@ -462,7 +460,7 @@ mod tests {
         // Build a string with lines that span chunk boundaries.
         let line = "x".repeat(CHUNK_SIZE / 2) + "\n";
         let s = line.repeat(5);
-        let c = ChunkedContent::from_str(&s);
+        let c = ChunkedContent::from_string(&s);
         assert_eq!(c.line_count(), 5);
     }
 
@@ -470,21 +468,21 @@ mod tests {
 
     #[test]
     fn lines_basic() {
-        let c = ChunkedContent::from_str("a\nb\nc\nd\ne");
+        let c = ChunkedContent::from_string("a\nb\nc\nd\ne");
         let result = c.lines(0, 3);
         assert_eq!(result, vec!["a", "b", "c"]);
     }
 
     #[test]
     fn lines_with_offset() {
-        let c = ChunkedContent::from_str("a\nb\nc\nd\ne");
+        let c = ChunkedContent::from_string("a\nb\nc\nd\ne");
         let result = c.lines(2, 2);
         assert_eq!(result, vec!["c", "d"]);
     }
 
     #[test]
     fn lines_past_end() {
-        let c = ChunkedContent::from_str("a\nb");
+        let c = ChunkedContent::from_string("a\nb");
         let result = c.lines(0, 100);
         assert_eq!(result, vec!["a", "b"]);
     }
@@ -498,7 +496,7 @@ mod tests {
 
     #[test]
     fn lines_count_zero() {
-        let c = ChunkedContent::from_str("a\nb\nc");
+        let c = ChunkedContent::from_string("a\nb\nc");
         let result = c.lines(0, 0);
         assert!(result.is_empty());
     }
@@ -509,43 +507,46 @@ mod tests {
     fn push_str_to_empty() {
         let mut c = ChunkedContent::new();
         c.push_str("hello");
-        assert_eq!(c.to_string(), "hello");
+        assert_eq!(c.as_string(), "hello");
     }
 
     #[test]
     fn push_str_appends() {
-        let mut c = ChunkedContent::from_str("hello");
+        let mut c = ChunkedContent::from_string("hello");
         c.push_str(" world");
-        assert_eq!(c.to_string(), "hello world");
+        assert_eq!(c.as_string(), "hello world");
     }
 
     #[test]
     fn push_str_creates_new_chunks() {
-        let mut c = ChunkedContent::from_str(&"a".repeat(CHUNK_SIZE));
+        let mut c = ChunkedContent::from_string(&"a".repeat(CHUNK_SIZE));
         c.push_str(&"b".repeat(CHUNK_SIZE));
         assert_eq!(c.chunks.len(), 2);
-        assert_eq!(c.to_string(), format!("{}{}", "a".repeat(CHUNK_SIZE), "b".repeat(CHUNK_SIZE)));
+        assert_eq!(
+            c.as_string(),
+            format!("{}{}", "a".repeat(CHUNK_SIZE), "b".repeat(CHUNK_SIZE))
+        );
     }
 
     #[test]
     fn clear_resets() {
-        let mut c = ChunkedContent::from_str("hello");
+        let mut c = ChunkedContent::from_string("hello");
         c.clear();
         assert!(c.is_empty());
         assert_eq!(c.len(), 0);
-        assert_eq!(c.to_string(), "");
+        assert_eq!(c.as_string(), "");
     }
 
     // -- Serde round-trip (small content) -------------------------------------
 
     #[test]
     fn serde_roundtrip_small() {
-        let c = ChunkedContent::from_str("hello world");
+        let c = ChunkedContent::from_string("hello world");
         let json = serde_json::to_string(&c).unwrap();
         // Small content serialises as a plain JSON string.
         assert_eq!(json, "\"hello world\"");
         let restored: ChunkedContent = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.to_string(), "hello world");
+        assert_eq!(restored.as_string(), "hello world");
     }
 
     // -- Serde round-trip (large content) -------------------------------------
@@ -553,12 +554,12 @@ mod tests {
     #[test]
     fn serde_roundtrip_large() {
         let s = "x".repeat(INLINE_THRESHOLD + 1);
-        let c = ChunkedContent::from_str(&s);
+        let c = ChunkedContent::from_string(&s);
         let json = serde_json::to_string(&c).unwrap();
         // Large content serialises as a structured object.
         assert!(json.contains("__chunked"));
         let restored: ChunkedContent = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.to_string(), s);
+        assert_eq!(restored.as_string(), s);
     }
 
     // -- Serde: legacy plain string -------------------------------------------
@@ -567,7 +568,7 @@ mod tests {
     fn serde_deserialize_legacy_string() {
         let json = "\"legacy content\"";
         let c: ChunkedContent = serde_json::from_str(json).unwrap();
-        assert_eq!(c.to_string(), "legacy content");
+        assert_eq!(c.as_string(), "legacy content");
     }
 
     // -- Serde: null / missing ------------------------------------------------
@@ -584,7 +585,7 @@ mod tests {
     fn file_node_read_lines() {
         let f = FileNode {
             name: "test.txt".to_string(),
-            content: ChunkedContent::from_str("a\nb\nc\nd\ne"),
+            content: ChunkedContent::from_string("a\nb\nc\nd\ne"),
         };
         assert_eq!(f.read_lines(1, 3), "b\nc\nd");
     }
@@ -593,7 +594,7 @@ mod tests {
     fn file_node_line_count() {
         let f = FileNode {
             name: "test.txt".to_string(),
-            content: ChunkedContent::from_str("a\nb\nc"),
+            content: ChunkedContent::from_string("a\nb\nc"),
         };
         assert_eq!(f.line_count(), 3);
     }

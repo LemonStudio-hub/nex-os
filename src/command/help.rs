@@ -52,14 +52,22 @@ pub fn execute(registry: &Registry) -> String {
 pub struct HelpCommand;
 
 impl super::Command for HelpCommand {
-    fn name(&self) -> &'static str { "help" }
-    fn description(&self) -> &'static str { "Display this help message" }
+    fn name(&self) -> &'static str {
+        "help"
+    }
+    fn description(&self) -> &'static str {
+        "Display this help message"
+    }
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         Ok(execute(ctx.registry))
     }
-    fn synopsis(&self) -> &'static str { "help" }
+    fn synopsis(&self) -> &'static str {
+        "help"
+    }
     fn man_description(&self) -> &'static str {
         "Display a formatted list of all available commands sorted alphabetically, each with a brief description. This serves as the user's quick-reference guide within the terminal."
     }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

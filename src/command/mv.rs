@@ -79,22 +79,30 @@ pub struct MvCommand;
 /// module-level `execute` function.
 impl super::Command for MvCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "mv" }
+    fn name(&self) -> &'static str {
+        "mv"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Move or rename files and directories" }
+    fn description(&self) -> &'static str {
+        "Move or rename files and directories"
+    }
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&mut ctx.state.vfs, ctx.args)
     }
 
-    fn synopsis(&self) -> &'static str { "mv source destination" }
+    fn synopsis(&self) -> &'static str {
+        "mv source destination"
+    }
     fn man_description(&self) -> &'static str {
         "Move or rename a file or directory from source to destination. The source is removed after the move. \
 If the destination is an existing directory, the source is moved into that directory preserving its basename."
     }
-    fn examples(&self) -> &'static [&'static str] { &["mv old.txt new.txt", "mv file.txt /tmp/"] }
+    fn examples(&self) -> &'static [&'static str] {
+        &["mv old.txt new.txt", "mv file.txt /tmp/"]
+    }
 }
 
 #[cfg(test)]

@@ -64,16 +64,26 @@ pub struct HistoryCommand;
 /// to the module-level `execute` function.
 impl super::Command for HistoryCommand {
     /// The command name as typed by the user.
-    fn name(&self) -> &'static str { "history" }
+    fn name(&self) -> &'static str {
+        "history"
+    }
 
     /// One-line summary shown in `help` output.
-    fn description(&self) -> &'static str { "Display command history" }
+    fn description(&self) -> &'static str {
+        "Display command history"
+    }
 
     /// Execute the command, forwarding the shell's history slice.
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.history)
     }
-    fn synopsis(&self) -> &'static str { "history" }
-    fn man_description(&self) -> &'static str { "Display a numbered list of all commands entered during the current session. Each entry is prefixed with a sequential number starting at 1. Unlike real bash, this implementation does not support history deletion or re-execution." }
-    fn examples(&self) -> &'static [&'static str] { &[] }
+    fn synopsis(&self) -> &'static str {
+        "history"
+    }
+    fn man_description(&self) -> &'static str {
+        "Display a numbered list of all commands entered during the current session. Each entry is prefixed with a sequential number starting at 1. Unlike real bash, this implementation does not support history deletion or re-execution."
+    }
+    fn examples(&self) -> &'static [&'static str] {
+        &[]
+    }
 }

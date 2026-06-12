@@ -76,7 +76,7 @@ pub fn execute(vfs: &Vfs, args: &[&str]) -> Result<String, String> {
     // Use file_line_count to determine the skip offset, then read only the
     // trailing lines via the efficient partial-read API.
     let total = vfs.file_line_count(&resolved)?;
-    let start = if total > count { total - count } else { 0 };
+    let start = total.saturating_sub(count);
     let output = vfs.read_file_lines(&resolved, start, count)?;
     Ok(format!("{}\n", output))
 }
@@ -88,21 +88,29 @@ pub struct TailCommand;
 /// registry. Delegates to the standalone [`execute`] function.
 impl super::Command for TailCommand {
     /// Returns the command name used for dispatch and tab completion.
-    fn name(&self) -> &'static str { "tail" }
+    fn name(&self) -> &'static str {
+        "tail"
+    }
 
     /// Short description shown in `help` output.
-    fn description(&self) -> &'static str { "Display last N lines of a file (-n COUNT)" }
+    fn description(&self) -> &'static str {
+        "Display last N lines of a file (-n COUNT)"
+    }
 
     /// Indicates that `tail` can accept piped stdin, which the shell routes
     /// as a file argument when no explicit path is given.
-    fn accepts_stdin(&self) -> bool { true }
+    fn accepts_stdin(&self) -> bool {
+        true
+    }
 
     /// Entry point called by the shell dispatcher. Extracts the VFS and args
     /// from the shared [`super::CommandContext`].
     fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
         execute(&ctx.state.vfs, ctx.args)
     }
-    fn synopsis(&self) -> &'static str { "tail [-n COUNT] file" }
+    fn synopsis(&self) -> &'static str {
+        "tail [-n COUNT] file"
+    }
     fn man_description(&self) -> &'static str {
         "Display the last N lines of a file to standard output. By default, the last 10 lines \
 are shown. Use the -n flag to specify a different line count; both spaced (-n 5) and compact \
