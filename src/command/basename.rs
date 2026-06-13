@@ -77,8 +77,8 @@ impl super::Command for BasenameCommand {
     fn description(&self) -> &'static str {
         "Strip directory from filename"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.args)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(ctx.args).into()
     }
     fn synopsis(&self) -> &'static str {
         "basename path [suffix]"

@@ -45,8 +45,8 @@ impl super::Command for EchoCommand {
     fn description(&self) -> &'static str {
         "Display a line of text"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.args)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(ctx.args).into()
     }
     fn synopsis(&self) -> &'static str {
         "echo text"

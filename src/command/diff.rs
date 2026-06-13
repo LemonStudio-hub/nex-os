@@ -182,8 +182,8 @@ impl super::Command for DiffCommand {
     fn description(&self) -> &'static str {
         "Compare two files line by line"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
     fn synopsis(&self) -> &'static str {
         "diff file1 file2"

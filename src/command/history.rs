@@ -74,8 +74,8 @@ impl super::Command for HistoryCommand {
     }
 
     /// Execute the command, forwarding the shell's history slice.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.history)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.history).into()
     }
     fn synopsis(&self) -> &'static str {
         "history"

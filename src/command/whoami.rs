@@ -57,8 +57,8 @@ impl super::Command for WhoamiCommand {
     /// Entry point called by the shell dispatcher. Extracts the username
     /// from the [`super::CommandContext`] and delegates to the standalone
     /// [`execute`] function.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.username)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.username).into()
     }
     fn synopsis(&self) -> &'static str {
         "whoami"

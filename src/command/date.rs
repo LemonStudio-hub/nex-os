@@ -66,8 +66,8 @@ impl super::Command for DateCommand {
     fn description(&self) -> &'static str {
         "Display the current date and time"
     }
-    fn execute(&self, _ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute()
+    fn execute(&self, _ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute().into()
     }
     fn synopsis(&self) -> &'static str {
         "date"

@@ -61,8 +61,8 @@ impl super::Command for PwdCommand {
     }
 
     /// Execute the command, forwarding the VFS from the context.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.vfs).into()
     }
 
     fn synopsis(&self) -> &'static str {

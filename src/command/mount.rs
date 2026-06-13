@@ -9,24 +9,24 @@
 //! ```
 //!
 //! When called with a path, the command creates the mount point in the VFS
-//! metadata and returns a special `__MOUNT_REQUEST__` marker that the frontend
-//! intercepts to open the browser's directory picker.
+//! metadata and returns a `CommandOutput` with a `mount_request` action that
+//! the frontend intercepts to open the browser's directory picker.
 //!
 //! The actual `FileSystemDirectoryHandle` lives on the JavaScript side and
 //! must be registered with WASM via `register_host_fs` after the user selects
 //! a directory.
 
-use crate::command::CommandContext;
+use crate::command::{CommandContext, CommandOutput};
 
 /// Execute the `mount` command.
-pub fn execute(ctx: &mut CommandContext) -> Result<String, String> {
+pub fn execute(ctx: &mut CommandContext) -> CommandOutput {
     let args = ctx.args;
 
     if args.is_empty() {
         // List current mounts
         let mounts = ctx.state.vfs.list_mounts();
         if mounts.is_empty() {
-            return Ok(
+            return CommandOutput::success(
                 "No directories mounted.\nUsage: mount <path>\n       mount -u <path>\n"
                     .to_string(),
             );
@@ -35,23 +35,29 @@ pub fn execute(ctx: &mut CommandContext) -> Result<String, String> {
         for (vfs_path, host_path) in mounts {
             output.push_str(&format!("  {} -> {}\n", vfs_path, host_path));
         }
-        return Ok(output);
+        return CommandOutput::success(output);
     }
 
     // Unmount
     if args[0] == "-u" || args[0] == "--unmount" {
         if args.len() < 2 {
-            return Err("mount: missing path for -u".to_string());
+            return CommandOutput::error("mount", "missing path for -u");
         }
-        let path = ctx.state.vfs.resolve_path(args[1])?;
+        let path = match ctx.state.vfs.resolve_path(args[1]) {
+            Ok(p) => p,
+            Err(e) => return CommandOutput::error("mount", &e),
+        };
         if ctx.state.vfs.remove_mount(&path) {
-            Ok(format!("Unmounted {}\n", path))
+            CommandOutput::success(format!("Unmounted {}\n", path))
         } else {
-            Err(format!("mount: {} is not mounted", path))
+            CommandOutput::error("mount", &format!("{} is not mounted", path))
         }
     } else {
         // Mount request
-        let path = ctx.state.vfs.resolve_path(args[0])?;
+        let path = match ctx.state.vfs.resolve_path(args[0]) {
+            Ok(p) => p,
+            Err(e) => return CommandOutput::error("mount", &e),
+        };
         // Create the mount point directory in VFS if it doesn't exist.
         // Use mkdir -p semantics: create intermediate directories as needed.
         if !ctx.state.vfs.exists(&path) {
@@ -64,7 +70,9 @@ pub fn execute(ctx: &mut CommandContext) -> Result<String, String> {
                     format!("{}/{}", current, comp)
                 };
                 if !ctx.state.vfs.exists(&current) {
-                    ctx.state.vfs.mkdir(&current)?;
+                    if let Err(e) = ctx.state.vfs.mkdir(&current) {
+                        return CommandOutput::error("mount", &e);
+                    }
                 }
             }
         }
@@ -72,8 +80,8 @@ pub fn execute(ctx: &mut CommandContext) -> Result<String, String> {
         ctx.state
             .vfs
             .add_mount(path.clone(), String::new());
-        // Return a special marker that the frontend intercepts
-        Err(format!("__MOUNT_REQUEST__{}", path))
+        // Return a mount request action for the frontend to intercept
+        CommandOutput::mount_request(path)
     }
 }
 
@@ -87,7 +95,7 @@ impl super::Command for MountCommand {
     fn description(&self) -> &'static str {
         "Mount a host directory into the virtual filesystem"
     }
-    fn execute(&self, ctx: &mut CommandContext) -> Result<String, String> {
+    fn execute(&self, ctx: &mut CommandContext) -> CommandOutput {
         execute(ctx)
     }
     fn synopsis(&self) -> &'static str {
@@ -115,7 +123,7 @@ mod tests {
         let service = Service::new();
         let mut state = ShellState::new(Vfs::new());
         let output = service.execute_command(&mut state, "mount", None);
-        assert!(output.contains("No directories mounted"));
+        assert!(output.stdout.contains("No directories mounted"));
     }
 
     #[test]
@@ -123,8 +131,9 @@ mod tests {
         let service = Service::new();
         let mut state = ShellState::new(Vfs::new());
         let output = service.execute_command(&mut state, "mount /mnt/test", None);
-        // mount returns an error with the marker (because it needs frontend interaction)
-        assert!(output.contains("__MOUNT_REQUEST__/mnt/test"));
+        // mount returns a mount_request action for the frontend to intercept
+        assert!(output.action.is_some());
+        assert!(output.action.unwrap().contains("mount_request:/mnt/test"));
         // The mount point directory should have been created
         assert!(state.vfs.exists("/mnt/test"));
         // The mount metadata should be registered
@@ -140,7 +149,7 @@ mod tests {
         state.vfs.mkdir("/mnt").unwrap();
         state.vfs.mkdir("/mnt/host").unwrap();
         let output = service.execute_command(&mut state, "mount -u /mnt/host", None);
-        assert!(output.contains("Unmounted"));
+        assert!(output.stdout.contains("Unmounted"));
         assert!(!state.vfs.mounts.contains_key("/mnt/host"));
     }
 
@@ -149,7 +158,7 @@ mod tests {
         let service = Service::new();
         let mut state = ShellState::new(Vfs::new());
         let output = service.execute_command(&mut state, "mount -u /mnt/nope", None);
-        assert!(output.contains("not mounted"));
+        assert!(output.stderr.contains("not mounted"));
     }
 
     #[test]
@@ -159,7 +168,7 @@ mod tests {
         state.vfs.add_mount("/mnt/a".to_string(), "dir_a".to_string());
         state.vfs.add_mount("/mnt/b".to_string(), "dir_b".to_string());
         let output = service.execute_command(&mut state, "mount", None);
-        assert!(output.contains("/mnt/a -> dir_a"));
-        assert!(output.contains("/mnt/b -> dir_b"));
+        assert!(output.stdout.contains("/mnt/a -> dir_a"));
+        assert!(output.stdout.contains("/mnt/b -> dir_b"));
     }
 }

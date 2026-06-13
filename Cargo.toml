@@ -16,9 +16,19 @@ serde_json = "1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "nexos_bench"
+harness = false
 
 [profile.release]
 opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+
+[profile.bench]
+opt-level = 3
+lto = false
+codegen-units = 16

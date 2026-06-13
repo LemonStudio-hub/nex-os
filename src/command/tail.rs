@@ -105,8 +105,8 @@ impl super::Command for TailCommand {
 
     /// Entry point called by the shell dispatcher. Extracts the VFS and args
     /// from the shared [`super::CommandContext`].
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
     fn synopsis(&self) -> &'static str {
         "tail [-n COUNT] file"

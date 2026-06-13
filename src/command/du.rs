@@ -177,8 +177,8 @@ impl super::Command for DuCommand {
     fn description(&self) -> &'static str {
         "Estimate disk usage (-h human-readable, -s summary)"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
     fn synopsis(&self) -> &'static str {
         "du [-h] [-s] [path]"

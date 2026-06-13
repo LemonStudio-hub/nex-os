@@ -156,8 +156,8 @@ impl super::Command for WcCommand {
 
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
     fn synopsis(&self) -> &'static str {
         "wc [-l] [-w] [-c] file [file2 ...]"

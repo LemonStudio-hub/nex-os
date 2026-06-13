@@ -58,8 +58,8 @@ impl super::Command for HelpCommand {
     fn description(&self) -> &'static str {
         "Display this help message"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        Ok(execute(ctx.registry))
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        Ok(execute(ctx.registry)).into()
     }
     fn synopsis(&self) -> &'static str {
         "help"

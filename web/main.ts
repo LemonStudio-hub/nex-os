@@ -81,27 +81,26 @@ async function main() {
   // Attempt to load a previously persisted VFS snapshot from OPFS.
   // loadFromOPFS returns { json, isNewFormat } so we can detect legacy
   // format and migrate to incremental storage.
-  const { json: savedState, isNewFormat } = await loadFromOPFS();
+  const { json: savedState, stateJson: savedNonVfsState, isNewFormat } = await loadFromOPFS();
 
   // Initialize the WASM service and get the initial shell state.
   // The state is a JSON string that the frontend owns and passes to every call.
   let initialState = wasm.init_with_username(savedState, username);
+
+  // Restore non-VFS state (command history, env vars, hostname) if available.
+  if (savedNonVfsState) {
+    initialState = wasm.apply_saved_state(initialState, savedNonVfsState);
+  }
 
   if (savedState) {
     if (isNewFormat) {
       terminal.writeln('\x1b[36m[NexOS] VFS restored from OPFS (incremental)\x1b[0m');
     } else {
       terminal.writeln('\x1b[36m[NexOS] VFS restored from OPFS (migrating to incremental)\x1b[0m');
-      // Migration: mark all files dirty so they get saved individually
-      // on the next save.  Then trigger an immediate save to write the
-      // new format.
+      // Migration: mark all files dirty so they get saved individually.
       initialState = wasm.mark_all_dirty(initialState);
-      await saveToOPFS(initialState, wasm);
-      // Mark clean after migration save so the dirty set is empty.
-      // (mark_state_clean is done inside saveToOPFS via get_dirty_files_json
-      // returning empty after the save completes — but we need to call
-      // the WASM function.  Since saveToOPFS doesn't call mark_state_clean
-      // directly, we do a fresh save cycle to clear the dirty state.)
+      // Trigger an immediate save to write the new format and clear dirty flags.
+      initialState = await saveToOPFS(initialState, wasm);
     }
   } else {
     terminal.writeln('\x1b[36m[NexOS] Fresh VFS initialized\x1b[0m');
@@ -148,7 +147,7 @@ async function main() {
   // Pass a closure that captures `wasm` so the persistence layer can
   // access the incremental-storage WASM functions.
   setupInputHandler(terminal, wasm, initialState, prompt, (stateJson) => {
-    saveToOPFS(stateJson, wasm);
+    return saveToOPFS(stateJson, wasm);
   }, hostFsManager);
 }
 

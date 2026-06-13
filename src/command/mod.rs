@@ -18,6 +18,107 @@ use crate::shell::ShellState;
 use crate::vfs::HostFs;
 
 // ---------------------------------------------------------------------------
+// CommandOutput — structured result with stdout, stderr, and exit code
+// ---------------------------------------------------------------------------
+
+/// The result of executing a command.
+///
+/// Unlike `Result<String, String>`, this type separates stdout from stderr
+/// and carries an explicit exit code — matching Unix semantics where a
+/// command can produce output on both streams simultaneously.
+///
+/// # Exit codes
+///
+/// - `0`  — success
+/// - `1`  — general error
+/// - `2`  — misuse of shell command (invalid arguments)
+/// - `127` — command not found
+pub struct CommandOutput {
+    /// Standard output content.
+    pub stdout: String,
+    /// Standard error content.
+    pub stderr: String,
+    /// Process exit code (0 = success).
+    pub exit_code: i32,
+    /// Optional special action for the frontend (e.g. mount requests).
+    pub action: Option<String>,
+}
+
+impl CommandOutput {
+    /// Create a successful output with the given stdout content.
+    pub fn success(stdout: String) -> Self {
+        Self {
+            stdout,
+            stderr: String::new(),
+            exit_code: 0,
+            action: None,
+        }
+    }
+
+    /// Create an error output with the command name prefix on stderr.
+    ///
+    /// Sets exit code to 1 (general error).
+    pub fn error(cmd: &str, msg: &str) -> Self {
+        Self {
+            stdout: String::new(),
+            stderr: format!("{}: {}", cmd, msg),
+            exit_code: 1,
+            action: None,
+        }
+    }
+
+    /// Create an empty successful output (no stdout, no stderr, exit 0).
+    pub fn empty() -> Self {
+        Self {
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: 0,
+            action: None,
+        }
+    }
+
+    /// Create a clear-screen output (sent as stdout with a special escape).
+    pub fn clear() -> Self {
+        Self {
+            stdout: "\x1b[2J\x1b[H".to_string(),
+            stderr: String::new(),
+            exit_code: 0,
+            action: None,
+        }
+    }
+
+    /// Create a mount request action for the frontend.
+    pub fn mount_request(path: String) -> Self {
+        Self {
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: 0,
+            action: Some(format!("mount_request:{}", path)),
+        }
+    }
+}
+
+/// Convert legacy `Result<String, String>` returns into `CommandOutput`.
+///
+/// This bridge allows existing command implementations that return
+/// `Result<String, String>` to work with the updated `Command` trait that
+/// expects `CommandOutput`.  `Ok(s)` becomes a success with stdout; `Err(e)`
+/// becomes an error with stderr and exit code 1.
+impl From<Result<String, String>> for CommandOutput {
+    fn from(result: Result<String, String>) -> Self {
+        match result {
+            Ok(stdout) => CommandOutput::success(stdout),
+            Err(stderr) => CommandOutput {
+                stdout: String::new(),
+                stderr,
+                exit_code: 1,
+                action: None,
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Command trait
 // ---------------------------------------------------------------------------
 
@@ -65,9 +166,9 @@ pub trait Command {
 
     /// Execute the command with the given context.
     ///
-    /// Return `Ok(output)` on success or `Err(message)` on failure.
-    /// The `&&` chaining mechanism stops on the first `Err`.
-    fn execute(&self, ctx: &mut CommandContext) -> Result<String, String>;
+    /// Returns a [`CommandOutput`] with separate stdout, stderr, and an
+    /// exit code.  The `&&` chaining mechanism stops when `exit_code != 0`.
+    fn execute(&self, ctx: &mut CommandContext) -> CommandOutput;
 
     // ---- Man page metadata (all have defaults) ----------------------------
 

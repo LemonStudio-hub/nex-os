@@ -108,8 +108,8 @@ impl super::Command for ManCommand {
     fn description(&self) -> &'static str {
         "Display manual page for a command"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.registry, ctx.args)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(ctx.registry, ctx.args).into()
     }
     fn synopsis(&self) -> &'static str {
         "man command"

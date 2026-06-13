@@ -83,8 +83,8 @@ impl super::Command for ExportCommand {
     fn description(&self) -> &'static str {
         "Set environment variables (export KEY=VALUE)"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.env_vars, ctx.args)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&mut ctx.state.env_vars, ctx.args).into()
     }
     fn synopsis(&self) -> &'static str {
         "export KEY=VALUE"

@@ -32,10 +32,10 @@ impl super::Command for ClearCommand {
         "Clear the terminal screen"
     }
 
-    fn execute(&self, _ctx: &mut super::CommandContext) -> Result<String, String> {
+    fn execute(&self, _ctx: &mut super::CommandContext) -> super::CommandOutput {
         // \x1b[2J  = Erase entire display
         // \x1b[H   = Move cursor to home position (row 1, col 1)
-        Ok("\x1b[2J\x1b[H".to_string())
+        Ok("\x1b[2J\x1b[H".to_string()).into()
     }
     fn synopsis(&self) -> &'static str {
         "clear"

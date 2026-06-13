@@ -279,14 +279,14 @@ impl Vfs {
         let (parent_path, name) = self.split_parent_name(path)?;
         let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
             format!(
-                "mkdir: cannot create directory '{}': No such file or directory",
+                "cannot create directory '{}': No such file or directory",
                 path_display_name(path)
             )
         })?;
 
         if parent.children.contains_key(&name) {
             return Err(format!(
-                "mkdir: cannot create directory '{}': File exists",
+                "cannot create directory '{}': File exists",
                 path_display_name(path)
             ));
         }
@@ -313,7 +313,7 @@ impl Vfs {
         let (parent_path, name) = self.split_parent_name(path)?;
         let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
             format!(
-                "touch: cannot touch '{}': No such file or directory",
+                "cannot touch '{}': No such file or directory",
                 path_display_name(path)
             )
         })?;
@@ -353,12 +353,12 @@ impl Vfs {
     /// returns an error.  When `true`, the entire subtree is deleted.
     fn rm_inner(&mut self, path: &str, recursive: bool) -> Result<String, String> {
         if path == "/" {
-            return Err("rm: cannot remove '/'".to_string());
+            return Err("cannot remove '/'".to_string());
         }
         let (parent_path, name) = self.split_parent_name(path)?;
         let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
             format!(
-                "rm: cannot remove '{}': No such file or directory",
+                "cannot remove '{}': No such file or directory",
                 path_display_name(path)
             )
         })?;
@@ -366,7 +366,7 @@ impl Vfs {
         if let Some(FsNode::Directory(dir)) = parent.children.get(&name) {
             if !dir.children.is_empty() && !recursive {
                 return Err(format!(
-                    "rm: cannot remove '{}': Is a directory",
+                    "cannot remove '{}': Is a directory",
                     path_display_name(path)
                 ));
             }
@@ -375,7 +375,7 @@ impl Vfs {
         // Collect file paths for dirty tracking before removing.
         let removed = parent.children.remove(&name).ok_or_else(|| {
             format!(
-                "rm: cannot remove '{}': No such file or directory",
+                "cannot remove '{}': No such file or directory",
                 path_display_name(path)
             )
         })?;
@@ -400,10 +400,10 @@ impl Vfs {
         match self.get_node_at(path) {
             Some(FsNode::File(f)) => Ok(f.content.as_string()),
             Some(FsNode::Directory(_)) => {
-                Err(format!("cat: {}: Is a directory", path_display_name(path)))
+                Err(format!("{}: Is a directory", path_display_name(path)))
             }
             None => Err(format!(
-                "cat: {}: No such file or directory",
+                "{}: No such file or directory",
                 path_display_name(path)
             )),
         }
@@ -427,7 +427,7 @@ impl Vfs {
         let (parent_path, name) = self.split_parent_name(path)?;
         let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
             format!(
-                "write: cannot create '{}': No such file or directory",
+                "cannot create '{}': No such file or directory",
                 path_display_name(path)
             )
         })?;
@@ -452,7 +452,7 @@ impl Vfs {
     pub fn list_dir(&self, path: &str) -> Result<Vec<FsNode>, String> {
         let dir = self.get_dir(path).ok_or_else(|| {
             format!(
-                "ls: cannot access '{}': No such file or directory",
+                "cannot access '{}': No such file or directory",
                 path_display_name(path)
             )
         })?;
@@ -472,7 +472,7 @@ impl Vfs {
             .get_node_at(src)
             .ok_or_else(|| {
                 format!(
-                    "cp: cannot stat '{}': No such file or directory",
+                    "cannot stat '{}': No such file or directory",
                     path_display_name(src)
                 )
             })?
@@ -489,7 +489,7 @@ impl Vfs {
         let (parent_path, name) = self.split_parent_name(&actual_dst)?;
         let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
             format!(
-                "cp: cannot create '{}': No such file or directory",
+                "cannot create '{}': No such file or directory",
                 path_display_name(&actual_dst)
             )
         })?;
@@ -752,7 +752,7 @@ impl Vfs {
         let resolved = self.resolve_path(path)?;
         if self.mounts.contains_key(&resolved) {
             return Err(format!(
-                "rm: cannot remove mount point '{}': use 'mount -u' to unmount first",
+                "cannot remove mount point '{}': use 'mount -u' to unmount first",
                 path_display_name(&resolved)
             ));
         }
@@ -773,7 +773,7 @@ impl Vfs {
         let resolved = self.resolve_path(path)?;
         if self.mounts.contains_key(&resolved) {
             return Err(format!(
-                "rm: cannot remove mount point '{}': use 'mount -u' to unmount first",
+                "cannot remove mount point '{}': use 'mount -u' to unmount first",
                 path_display_name(&resolved)
             ));
         }

@@ -56,10 +56,10 @@ impl super::Command for EnvCommand {
     fn description(&self) -> &'static str {
         "Display environment variables"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
         // Dereference the mutable borrow to get an immutable reference,
         // since `env` only reads the environment and never modifies it.
-        execute(&ctx.state.env_vars)
+        execute(&ctx.state.env_vars).into()
     }
     fn synopsis(&self) -> &'static str {
         "env"

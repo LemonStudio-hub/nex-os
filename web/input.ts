@@ -53,14 +53,27 @@ export interface WasmApi {
   register_host_fs(mountId: string, callbacks: object): string;
   /** Unregister host FS callbacks for a mount. */
   unregister_host_fs(mountId: string): string;
+  /** Get non-VFS state dirty flags as JSON: {"history": bool, "env_vars": bool}. */
+  get_state_dirty_flags(state: string): string;
+  /** Clear all dirty flags and return updated state JSON. */
+  mark_state_clean(state: string): string;
+  /** Serialize non-VFS state (history, env_vars, hostname) to JSON. */
+  get_non_vfs_state_json(state: string): string;
+  /** Merge saved non-VFS state into the current shell state. */
+  apply_saved_state(state: string, savedState: string): string;
+  /** Write a file directly into the VFS (used by upload flow). */
+  write_file_to_vfs(state: string, path: string, content: string): string;
 }
 
 /**
  * Parsed result from `execute_command`.
  */
 interface ExecuteResult {
-  output: string;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
   state: string;
+  action: string | null;
 }
 
 /**
@@ -80,13 +93,15 @@ interface ExecuteResult {
  * @param initialState  - The initial shell state JSON string.
  * @param initialPrompt - The prompt string to display initially.
  * @param onSaveState   - Callback to persist VFS JSON to OPFS.
+ *                         May return the cleaned state JSON (sync) or a
+ *                         Promise that resolves to it (async).
  */
 export function setupInputHandler(
   terminal: Terminal,
   wasm: WasmApi,
   initialState: string,
   initialPrompt: string,
-  onSaveState: (stateJson: string) => void,
+  onSaveState: (stateJson: string) => string | void | Promise<string | void>,
   hostFsManager?: HostFsManager,
 ): void {
   // The current shell state — updated after every mutating operation.
@@ -115,22 +130,21 @@ export function setupInputHandler(
         history.push(inputBuffer);
         historyIndex = history.length;
 
-        // Delegate to the WASM shell — returns {output, state}.
+        // Delegate to the WASM shell — returns {stdout, stderr, exit_code, state, action}.
         const raw = wasm.execute_command(stateJson, inputBuffer);
         let result: ExecuteResult;
         try {
           result = JSON.parse(raw);
         } catch {
-          result = { output: raw, state: stateJson };
+          result = { stdout: raw, stderr: '', exit_code: 0, state: stateJson, action: null };
         }
 
         // Update the stored state.
         stateJson = result.state;
 
-        // Detect mount request: the `mount` command returns a special
-        // error marker that signals the frontend to open the directory picker.
-        if (result.output.startsWith('__MOUNT_REQUEST__')) {
-          const vfsPath = result.output.replace('__MOUNT_REQUEST__', '').trim();
+        // Detect special actions (e.g. mount/upload/download requests) from the action field.
+        if (result.action && result.action.startsWith('mount_request:')) {
+          const vfsPath = result.action.replace('mount_request:', '');
           handleMountRequest(terminal, wasm, vfsPath, hostFsManager)
             .then((newState) => {
               if (newState) {
@@ -145,17 +159,25 @@ export function setupInputHandler(
           return;
         }
 
-        // The `clear` command returns a special ANSI escape sequence;
+        // The `clear` command returns a special ANSI escape sequence in stdout;
         // detect it and clear the terminal instead of printing it.
-        if (result.output === '\x1b[2J\x1b[H') {
+        if (result.stdout === '\x1b[2J\x1b[H') {
           terminal.clear();
-        } else if (result.output.length > 0) {
-          // Strip the trailing newline so the prompt sits flush with the
-          // last line of output.
-          const trimmed = result.output.endsWith('\n')
-            ? result.output.slice(0, -1)
-            : result.output;
-          terminal.writeln(trimmed);
+        } else {
+          // Display stdout (if any).
+          if (result.stdout.length > 0) {
+            const trimmed = result.stdout.endsWith('\n')
+              ? result.stdout.slice(0, -1)
+              : result.stdout;
+            terminal.writeln(trimmed);
+          }
+          // Display stderr in red (if any).
+          if (result.stderr.length > 0) {
+            const trimmed = result.stderr.endsWith('\n')
+              ? result.stderr.slice(0, -1)
+              : result.stderr;
+            terminal.writeln(`\x1b[31m${trimmed}\x1b[0m`);
+          }
         }
 
         // Flush any pending host FS writes.
@@ -167,7 +189,16 @@ export function setupInputHandler(
         // Pass the full state JSON so the persistence layer can access
         // dirty-tracking info for incremental saves.
         if (stateJson) {
-          onSaveState(stateJson);
+          const result = onSaveState(stateJson);
+          if (typeof result === 'string') {
+            stateJson = result;
+          } else if (result && typeof (result as Promise<string | void>).then === 'function') {
+            (result as Promise<string | void>).then((cleaned) => {
+              if (typeof cleaned === 'string') {
+                stateJson = cleaned;
+              }
+            });
+          }
         }
       }
 
@@ -348,5 +379,120 @@ async function handleMountRequest(
       terminal.writeln(`\x1b[31mMount failed: ${e}\x1b[0m`);
     }
     return null;
+  }
+}
+
+/**
+ * Handle an upload request from the `upload` command.
+ *
+ * Opens the browser's file picker, reads the selected files, and writes
+ * them into the VFS at the specified destination directory.
+ *
+ * @param stateJson - The current shell state JSON (passed from the action handler).
+ * @returns The updated state JSON, or null if the upload was cancelled.
+ */
+async function handleUploadRequest(
+  terminal: Terminal,
+  wasm: WasmApi,
+  destPath: string,
+  stateJson?: string,
+): Promise<string | null> {
+  try {
+    // @ts-expect-error: showOpenFilePicker may not be in all type defs
+    const handles: FileSystemFileHandle[] = await window.showOpenFilePicker({
+      multiple: true,
+    });
+
+    if (handles.length === 0) {
+      terminal.writeln('\x1b[33mNo files selected.\x1b[0m');
+      return null;
+    }
+
+    terminal.writeln(`\x1b[33mUploading ${handles.length} file(s) to ${destPath}...\x1b[0m`);
+
+    // Use the current state if provided, otherwise initialise a fresh one.
+    let currentState = stateJson ?? wasm.get_state_json(wasm.init_with_username('', 'user'));
+
+    let uploaded = 0;
+    for (const handle of handles) {
+      try {
+        const file = await handle.getFile();
+        const content = await file.text();
+        const filePath = destPath === '/' ? `/${file.name}` : `${destPath}/${file.name}`;
+
+        // Write the file into the VFS via the WASM export.
+        currentState = wasm.write_file_to_vfs(currentState, filePath, content);
+        uploaded++;
+        terminal.writeln(`  \x1b[32m✓ ${file.name}\x1b[0m`);
+      } catch (e) {
+        terminal.writeln(`  \x1b[31m✗ ${handle.name}: ${e}\x1b[0m`);
+      }
+    }
+
+    terminal.writeln(`\x1b[32mUploaded ${uploaded}/${handles.length} file(s).\x1b[0m`);
+    return currentState;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      terminal.writeln('\x1b[33mUpload cancelled.\x1b[0m');
+    } else {
+      terminal.writeln(`\x1b[31mUpload failed: ${e}\x1b[0m`);
+    }
+    return null;
+  }
+}
+
+/**
+ * Handle a download request from the `download` command.
+ *
+ * Attempts to use the File System Access API (`showSaveFilePicker`) for a
+ * native save dialog.  Falls back to a blob download if the API is unavailable.
+ */
+async function handleDownloadRequest(
+  terminal: Terminal,
+  wasm: WasmApi,
+  stateJson: string,
+  filename: string,
+  vfsPath: string,
+): Promise<void> {
+  // Get the file content from the VFS.
+  const content = wasm.get_file_content(stateJson, vfsPath);
+
+  try {
+    // Try the File System Access API for a native save dialog.
+    // @ts-expect-error: showSaveFilePicker may not be in all type defs
+    const handle: FileSystemFileHandle = await window.showSaveFilePicker({
+      suggestedName: filename,
+      types: [
+        {
+          description: 'Text files',
+          accept: { 'text/plain': ['.txt', '.md', '.json', '.csv', '.rs', '.ts', '.js'] },
+        },
+      ],
+    });
+    const writable = await handle.createWritable();
+    await writable.write(content);
+    await writable.close();
+    terminal.writeln(`\x1b[32mSaved to ${handle.name}\x1b[0m`);
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      terminal.writeln('\x1b[33mDownload cancelled.\x1b[0m');
+    } else {
+      // Fallback: blob download via invisible anchor element.
+      try {
+        const blob = new Blob([content], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        terminal.writeln(`\x1b[32mDownloaded ${filename}\x1b[0m`);
+      } catch (fallbackErr) {
+        terminal.writeln(`\x1b[31mDownload failed: ${fallbackErr}\x1b[0m`);
+      }
+    }
   }
 }

@@ -4,7 +4,7 @@
 //! step of command execution: tokenise the input, look up the command in
 //! the registry, build a [`CommandContext`], and call `execute`.
 
-use crate::command::CommandContext;
+use crate::command::{CommandContext, CommandOutput};
 use crate::shell::{Service, ShellState};
 use crate::vfs::HostFs;
 
@@ -27,19 +27,26 @@ impl Service {
         input: &str,
         stdin: &str,
         host_fs: Option<&dyn HostFs>,
-    ) -> Result<String, String> {
+    ) -> CommandOutput {
         let tokens: Vec<&str> = input.split_whitespace().collect();
         if tokens.is_empty() {
-            return Ok(String::new());
+            return CommandOutput::empty();
         }
 
         let cmd_name = tokens[0];
         let args = &tokens[1..];
 
-        let command = self
-            .registry
-            .get(cmd_name)
-            .ok_or_else(|| format!("command not found: {}", cmd_name))?;
+        let command = match self.registry.get(cmd_name) {
+            Some(cmd) => cmd,
+            None => {
+                return CommandOutput {
+                    stdout: String::new(),
+                    stderr: format!("command not found: {}", cmd_name),
+                    exit_code: 127,
+                    action: None,
+                };
+            }
+        };
 
         // If stdin is non-empty and the command can consume it as file data,
         // write stdin content to a temp file and pass that file path as a trailing argument.

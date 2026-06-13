@@ -37,7 +37,12 @@ impl TestShell {
     }
 
     fn execute(&mut self, input: &str) -> String {
-        self.service.execute_command(&mut self.state, input, None)
+        let output = self.service.execute_command(&mut self.state, input, None);
+        let mut result = output.stdout;
+        if !output.stderr.is_empty() {
+            result.push_str(&output.stderr);
+        }
+        result
     }
 
     fn get_prompt(&self) -> String {

@@ -135,8 +135,8 @@ impl super::Command for TrCommand {
 
     /// Entry point called by the shell dispatcher. Passes the raw stdin
     /// string and args to the standalone [`execute`] function.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.stdin, ctx.args)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(ctx.stdin, ctx.args).into()
     }
     fn synopsis(&self) -> &'static str {
         "echo text | tr set1 set2"

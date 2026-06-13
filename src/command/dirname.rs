@@ -67,8 +67,8 @@ impl super::Command for DirnameCommand {
     fn description(&self) -> &'static str {
         "Strip filename from path"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.args)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(ctx.args).into()
     }
     fn synopsis(&self) -> &'static str {
         "dirname path"

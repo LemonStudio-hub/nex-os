@@ -41,8 +41,8 @@ impl super::Command for ExitCommand {
     /// Always returns `Ok("")`. The shell's top-level `execute()` method
     /// (in `lib.rs`) checks for the command name `"exit"` and sets a
     /// flag that the frontend reads to determine whether to shut down.
-    fn execute(&self, _ctx: &mut super::CommandContext) -> Result<String, String> {
-        Ok(String::new())
+    fn execute(&self, _ctx: &mut super::CommandContext) -> super::CommandOutput {
+        Ok(String::new()).into()
     }
     fn synopsis(&self) -> &'static str {
         "exit"

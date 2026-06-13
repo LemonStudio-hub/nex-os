@@ -144,8 +144,8 @@ impl super::Command for MkdirCommand {
     }
 
     /// Execute the command, forwarding VFS and arguments from the context.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
 
     fn synopsis(&self) -> &'static str {

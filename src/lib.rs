@@ -28,7 +28,8 @@ pub mod command;
 pub mod shell;
 pub mod vfs;
 
-use shell::{Service, ShellState};
+use command::CommandOutput;
+use shell::{Service, ShellState, StateDirtyFlags};
 use vfs::host_fs_wasm::WasmHostFs;
 use vfs::{HostFs, Vfs};
 
@@ -141,12 +142,12 @@ pub fn init_with_username(state_json: &str, username: &str) -> String {
 /// `state_json` is the current shell state (as returned by a previous call
 /// to `init` or `execute_command`).  `input` is the raw command line.
 ///
-/// Returns a JSON object: `{"output": "...", "state": "..."}` where
-/// `output` is the command's stdout/stderr and `state` is the updated
-/// shell state.  The frontend must parse this and store the new state.
+/// Returns a JSON object: `{"stdout": "...", "stderr": "...", "exit_code": 0, "state": "...", "action": null}`.
+/// The frontend must parse this, display stdout/stderr appropriately, and
+/// store the new state.
 ///
-/// If a panic occurs during execution, the error is caught and returned as a
-/// formatted error message instead of crashing the WASM module.
+/// If a panic occurs during execution, the error is caught and returned as
+/// stderr with exit code 1 instead of crashing the WASM module.
 #[wasm_bindgen]
 pub fn execute_command(state_json: &str, input: &str) -> String {
     ensure_panic_hook();
@@ -156,47 +157,56 @@ pub fn execute_command(state_json: &str, input: &str) -> String {
         Ok(s) => s,
         Err(_) => {
             return serde_json::json!({
-                "output": "Error: invalid shell state.\n",
-                "state": state_json
+                "stdout": "",
+                "stderr": "Error: invalid shell state.\n",
+                "exit_code": 1,
+                "state": state_json,
+                "action": null,
             })
             .to_string();
         }
     };
 
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
-        with_service(String::new(), |service| {
-            // Build a composite HostFs from all registered mount handles.
-            // The VFS mount metadata maps VFS paths -> host names; the registry
-            // maps the same mount IDs -> HostFs implementations.
-            HOST_FS_REGISTRY.with(|registry| {
-                let reg = registry.borrow();
-                if reg.is_empty() {
-                    service.execute_command(&mut state, input, None)
-                } else {
-                    // Use the first registered HostFs (for single-mount case).
-                    // For multi-mount, we'd need a CompositeHostFs; for now,
-                    // each mount has its own HostFs and the VFS find_mount()
-                    // determines which paths to delegate.
-                    let host_fs: Option<&dyn HostFs> = reg.values().next().map(|b| b.as_ref());
-                    service.execute_command(&mut state, input, host_fs)
-                }
-            })
-        })
+        with_service(
+            CommandOutput::error("nexsh", "service not initialized"),
+            |service| {
+                // Build a composite HostFs from all registered mount handles.
+                HOST_FS_REGISTRY.with(|registry| {
+                    let reg = registry.borrow();
+                    if reg.is_empty() {
+                        service.execute_command(&mut state, input, None)
+                    } else {
+                        let host_fs: Option<&dyn HostFs> =
+                            reg.values().next().map(|b| b.as_ref());
+                        service.execute_command(&mut state, input, host_fs)
+                    }
+                })
+            },
+        )
     }));
 
     let output = match result {
         Ok(output) => output,
         Err(payload) => {
             let msg = panic_message(&payload);
-            format!("\x1b[1;31mNexOS: internal error — {}\x1b[0m\n", msg)
+            CommandOutput {
+                stdout: String::new(),
+                stderr: format!("NexOS: internal error — {}\n", msg),
+                exit_code: 1,
+                action: None,
+            }
         }
     };
 
-    // Return both the output and the updated state.
+    // Return stdout, stderr, exit_code, action, and the updated state.
     let state_out = serde_json::to_string(&state).unwrap_or_default();
     serde_json::json!({
-        "output": output,
-        "state": state_out
+        "stdout": output.stdout,
+        "stderr": output.stderr,
+        "exit_code": output.exit_code,
+        "state": state_out,
+        "action": output.action,
     })
     .to_string()
 }
@@ -334,6 +344,109 @@ pub fn get_tree_json(state_json: &str) -> String {
         Err(_) => return String::new(),
     };
     state.vfs.to_tree_json()
+}
+
+/// Get which non-VFS state fields have changed since the last save.
+///
+/// Returns a JSON object: `{"history": bool, "env_vars": bool}`.
+/// Returns `{}` on deserialization failure.
+#[wasm_bindgen]
+pub fn get_state_dirty_flags(state_json: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return "{}".to_string(),
+    };
+    serde_json::json!({
+        "history": state.dirty_state.history,
+        "env_vars": state.dirty_state.env_vars,
+    })
+    .to_string()
+}
+
+/// Clear all dirty flags (VFS file dirty flags and non-VFS state dirty flags).
+///
+/// Returns the updated state JSON with all dirty flags cleared.
+/// Call this after a successful OPFS save.
+#[wasm_bindgen]
+pub fn mark_state_clean(state_json: &str) -> String {
+    ensure_panic_hook();
+    let mut state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return state_json.to_string(),
+    };
+    state.vfs.mark_clean();
+    state.dirty_state = StateDirtyFlags::default();
+    serde_json::to_string(&state).unwrap_or_else(|_| state_json.to_string())
+}
+
+/// Serialize non-VFS state (history, env_vars, hostname) to JSON.
+///
+/// Returns a JSON object with those three fields, suitable for
+/// persistence in `nexos_state.json`.
+/// Returns `"{}"` on deserialization failure.
+#[wasm_bindgen]
+pub fn get_non_vfs_state_json(state_json: &str) -> String {
+    ensure_panic_hook();
+    let state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return "{}".to_string(),
+    };
+    state.to_state_json()
+}
+
+/// Merge saved non-VFS state (history, env_vars, hostname) into the
+/// current ShellState.  Missing or empty fields in `saved_state_json`
+/// are skipped (defaults are preserved).
+///
+/// Returns the updated state JSON.
+#[wasm_bindgen]
+pub fn apply_saved_state(state_json: &str, saved_state_json: &str) -> String {
+    ensure_panic_hook();
+    let mut state: ShellState = match serde_json::from_str(state_json) {
+        Ok(s) => s,
+        Err(_) => return state_json.to_string(),
+    };
+
+    if saved_state_json.is_empty() {
+        return state_json.to_string();
+    }
+
+    let saved: serde_json::Value = match serde_json::from_str(saved_state_json) {
+        Ok(v) => v,
+        Err(_) => return state_json.to_string(),
+    };
+
+    // Restore history
+    if let Some(history) = saved.get("history").and_then(|v| v.as_array()) {
+        state.history = history
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect();
+    }
+
+    // Restore env_vars (merge; saved values override defaults)
+    if let Some(env) = saved.get("env_vars").and_then(|v| v.as_object()) {
+        for (key, value) in env {
+            if let Some(val_str) = value.as_str() {
+                state.env_vars.insert(key.clone(), val_str.to_string());
+            }
+        }
+        // Re-apply USER to ensure it matches the current login
+        state
+            .env_vars
+            .insert("USER".to_string(), state.username.clone());
+    }
+
+    // Restore hostname
+    if let Some(hostname) = saved.get("hostname").and_then(|v| v.as_str()) {
+        state.hostname = hostname.to_string();
+        state
+            .env_vars
+            .insert("HOSTNAME".to_string(), hostname.to_string());
+    }
+
+    serde_json::to_string(&state).unwrap_or_else(|_| state_json.to_string())
 }
 
 // ---------------------------------------------------------------------------

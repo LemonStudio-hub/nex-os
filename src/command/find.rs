@@ -112,8 +112,8 @@ impl super::Command for FindCommand {
     fn description(&self) -> &'static str {
         "Find files by name (find [path] -name PATTERN)"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
     fn synopsis(&self) -> &'static str {
         "find [path] -name pattern"

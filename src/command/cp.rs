@@ -131,8 +131,8 @@ impl super::Command for CpCommand {
     fn description(&self) -> &'static str {
         "Copy files or directories"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
 
     fn synopsis(&self) -> &'static str {

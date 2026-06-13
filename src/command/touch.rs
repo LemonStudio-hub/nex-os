@@ -73,8 +73,8 @@ impl super::Command for TouchCommand {
 
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
 
     fn synopsis(&self) -> &'static str {

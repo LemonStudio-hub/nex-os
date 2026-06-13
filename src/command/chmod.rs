@@ -132,8 +132,8 @@ impl super::Command for ChmodCommand {
     fn description(&self) -> &'static str {
         "Change file permissions (octal or symbolic)"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
     }
     fn synopsis(&self) -> &'static str {
         "chmod mode file [file2 ...]"

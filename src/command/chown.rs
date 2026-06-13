@@ -70,8 +70,8 @@ impl super::Command for ChownCommand {
     fn description(&self) -> &'static str {
         "Change file ownership (owner[:group])"
     }
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(ctx.args)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(ctx.args).into()
     }
     fn synopsis(&self) -> &'static str {
         "chown owner[:group] file [file2 ...]"

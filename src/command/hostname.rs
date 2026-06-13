@@ -58,8 +58,8 @@ impl super::Command for HostnameCommand {
     }
 
     /// Execute the command, forwarding the hostname from the context.
-    fn execute(&self, ctx: &mut super::CommandContext) -> Result<String, String> {
-        execute(&ctx.state.hostname)
+    fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
+        execute(&ctx.state.hostname).into()
     }
     fn synopsis(&self) -> &'static str {
         "hostname"

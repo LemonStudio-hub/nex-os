@@ -30,6 +30,8 @@ const TREE_FILE = 'nexos_tree.json';
 const FILES_DIR = 'nexos_files';
 /** Legacy monolithic state file (read-only fallback). */
 const LEGACY_FILE = 'vfs_state.json';
+/** Filename for non-VFS shell state (history, env_vars, hostname). */
+const STATE_FILE = 'nexos_state.json';
 
 /**
  * Encode an absolute VFS path into a safe OPFS filename.
@@ -111,6 +113,26 @@ interface PersistenceWasmApi {
   get_file_content(state: string, path: string): string;
   get_tree_json(state: string): string;
   mark_all_dirty(state: string): string;
+  get_state_dirty_flags(state: string): string;
+  mark_state_clean(state: string): string;
+  get_non_vfs_state_json(state: string): string;
+  apply_saved_state(state: string, savedState: string): string;
+}
+
+/**
+ * Load the non-VFS state file from OPFS.
+ * Returns an empty string if the file does not exist.
+ */
+async function loadStateFile(
+  root: FileSystemDirectoryHandle,
+): Promise<string> {
+  try {
+    const handle = await root.getFileHandle(STATE_FILE);
+    const file = await handle.getFile();
+    return await file.text();
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -118,13 +140,16 @@ interface PersistenceWasmApi {
  *
  * Tries the new incremental format first (`nexos_tree.json` +
  * `nexos_files/`).  Falls back to the legacy `vfs_state.json` if the
- * new format is not found.
+ * new format is not found.  Also loads non-VFS state from
+ * `nexos_state.json` if available.
  *
- * @returns `{ json, isNewFormat }` — the VFS JSON string and whether it
- *   came from the new format (used for migration detection).
+ * @returns `{ json, stateJson, isNewFormat }` — the VFS JSON string,
+ *   the non-VFS state JSON string, and whether it came from the new
+ *   format (used for migration detection).
  */
 export async function loadFromOPFS(): Promise<{
   json: string;
+  stateJson: string;
   isNewFormat: boolean;
 }> {
   try {
@@ -157,7 +182,10 @@ export async function loadFromOPFS(): Promise<{
         }
       }
 
-      return { json: JSON.stringify(tree), isNewFormat: true };
+      // Load non-VFS state (may not exist yet).
+      const stateJson = await loadStateFile(root);
+
+      return { json: JSON.stringify(tree), stateJson, isNewFormat: true };
     } catch {
       // New format not found — fall through to legacy.
     }
@@ -166,30 +194,36 @@ export async function loadFromOPFS(): Promise<{
     const fileHandle = await root.getFileHandle(LEGACY_FILE);
     const file = await fileHandle.getFile();
     const json = await file.text();
-    return { json, isNewFormat: false };
+
+    // Try loading non-VFS state even with legacy VFS format.
+    const stateJson = await loadStateFile(root);
+
+    return { json, stateJson, isNewFormat: false };
   } catch {
     // OPFS unavailable or nothing stored.
-    return { json: '', isNewFormat: false };
+    return { json: '', stateJson: '', isNewFormat: false };
   }
 }
 
 /**
- * Persist the VFS state to OPFS using incremental storage.
+ * Persist the shell state to OPFS using incremental storage.
  *
  * Only dirty (modified/created) files are written.  Deleted files are
  * removed from `nexos_files/`.  The tree skeleton is saved when there
- * are any changes.
+ * are any changes.  Non-VFS state (history, env_vars, hostname) is
+ * saved to `nexos_state.json` when dirty.
  *
- * After a successful save the dirty tracking sets are cleared in the
- * WASM state via `mark_state_clean`.
+ * After a successful save all dirty flags are cleared via
+ * `mark_state_clean`.
  *
  * @param stateJson - The full shell state JSON (not just VFS).
  * @param wasm      - The WASM API bindings.
+ * @returns The updated state JSON with all dirty flags cleared.
  */
 export async function saveToOPFS(
   stateJson: string,
   wasm: PersistenceWasmApi,
-): Promise<void> {
+): Promise<string> {
   try {
     const root = await navigator.storage.getDirectory();
 
@@ -201,9 +235,20 @@ export async function saveToOPFS(
       wasm.get_deleted_files_json(stateJson),
     );
 
-    // If no changes, skip save entirely.
-    if (dirtyFiles.length === 0 && deletedFiles.length === 0) {
-      return;
+    // Get non-VFS dirty flags.
+    const stateDirty: { history?: boolean; env_vars?: boolean } = JSON.parse(
+      wasm.get_state_dirty_flags(stateJson),
+    );
+    const hasStateChanges =
+      stateDirty.history === true || stateDirty.env_vars === true;
+
+    // If no changes at all, skip save entirely.
+    if (
+      dirtyFiles.length === 0 &&
+      deletedFiles.length === 0 &&
+      !hasStateChanges
+    ) {
+      return stateJson;
     }
 
     // Save each dirty file individually.
@@ -240,7 +285,25 @@ export async function saveToOPFS(
       await treeWritable.write(treeJson);
       await treeWritable.close();
     }
+
+    // Save non-VFS state if dirty.
+    if (hasStateChanges) {
+      const nonVfsJson = wasm.get_non_vfs_state_json(stateJson);
+      if (nonVfsJson && nonVfsJson !== '{}') {
+        const stateFh = await root.getFileHandle(STATE_FILE, {
+          create: true,
+        });
+        const stateWritable = await stateFh.createWritable();
+        await stateWritable.write(nonVfsJson);
+        await stateWritable.close();
+      }
+    }
+
+    // Clear all dirty flags after successful save.
+    const cleanState = wasm.mark_state_clean(stateJson);
+    return cleanState;
   } catch (e) {
     console.warn('[NexOS] OPFS save failed:', e);
+    return stateJson;
   }
 }
