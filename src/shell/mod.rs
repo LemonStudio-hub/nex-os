@@ -25,7 +25,7 @@ mod dispatch;
 pub mod pipeline;
 
 use crate::command::{CommandOutput, Registry};
-use crate::vfs::{HostFs, Vfs};
+use crate::vfs::{HostFs, UserDatabase, Vfs};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -74,12 +74,25 @@ pub struct ShellState {
     /// Tracks which non-VFS fields have changed since the last save.
     #[serde(default)]
     pub dirty_state: StateDirtyFlags,
+    /// Numeric UID of the logged-in user. 0 = root.
+    #[serde(default)]
+    pub uid: u32,
+    /// Numeric GID of the logged-in user.
+    #[serde(default)]
+    pub gid: u32,
+    /// Effective UID (for sudo elevation). When != uid, user is elevated.
+    #[serde(default)]
+    pub euid: u32,
+    /// Cached user database parsed from /etc/passwd, /etc/group, /etc/sudoers.
+    /// Rebuilt from VFS on every state load — not persisted directly.
+    #[serde(skip)]
+    pub user_db: UserDatabase,
 }
 
 impl ShellState {
     /// Create a fresh state with default identity (`user@nexos`) and
     /// standard environment variables (`HOME`, `PATH`, `PWD`, etc.).
-    pub fn new(vfs: Vfs) -> Self {
+    pub fn new(mut vfs: Vfs) -> Self {
         let username = "user".to_string();
         let hostname = "nexos".to_string();
 
@@ -92,6 +105,9 @@ impl ShellState {
         env_vars.insert("PWD".to_string(), "/".to_string());
         env_vars.insert("TERM".to_string(), "xterm-256color".to_string());
 
+        // Bootstrap permission system: create /etc files and resolve uid/gid.
+        let (uid, gid, user_db) = bootstrap_permissions(&mut vfs, &username);
+
         ShellState {
             vfs,
             username,
@@ -100,15 +116,24 @@ impl ShellState {
             env_vars,
             last_exit_code: 0,
             dirty_state: StateDirtyFlags::default(),
+            uid,
+            gid,
+            euid: uid,
+            user_db,
         }
     }
 
     /// Restore state from a persisted JSON snapshot, applying the given
     /// username.  Returns `None` if deserialization fails.
     pub fn from_state_json(json: &str, username: &str) -> Option<Self> {
-        Vfs::from_json(json).ok().map(|vfs| {
+        Vfs::from_json(json).ok().map(|mut vfs| {
+            let (uid, gid, user_db) = bootstrap_permissions(&mut vfs, username);
             let mut state = Self::new(vfs);
             state.username = username.to_string();
+            state.uid = uid;
+            state.gid = gid;
+            state.euid = uid;
+            state.user_db = user_db;
             state
                 .env_vars
                 .insert("USER".to_string(), username.to_string());
@@ -132,15 +157,25 @@ impl ShellState {
         self.vfs.to_json()
     }
 
-    /// Serialize non-VFS state (history, env_vars, hostname) to JSON for
-    /// separate OPFS persistence.  Returns a JSON object with those three fields.
+    /// Serialize non-VFS state (history, env_vars, hostname, uid, gid, euid) to JSON for
+    /// separate OPFS persistence.  Returns a JSON object with those fields.
     pub fn to_state_json(&self) -> String {
         let state_data = serde_json::json!({
             "history": self.history,
             "env_vars": self.env_vars,
             "hostname": self.hostname,
+            "uid": self.uid,
+            "gid": self.gid,
+            "euid": self.euid,
         });
         serde_json::to_string(&state_data).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Refresh the cached user database from the VFS `/etc/` files.
+    ///
+    /// Call this after modifying `/etc/passwd`, `/etc/group`, or `/etc/sudoers`.
+    pub fn refresh_user_db(&mut self) {
+        self.user_db = UserDatabase::from_vfs(&self.vfs);
     }
 
     /// Restore a full ShellState by combining an existing VFS with saved
@@ -149,12 +184,17 @@ impl ShellState {
     /// Falls back to defaults for any missing fields.  Returns `None` only
     /// if the VFS itself is invalid.
     pub fn from_state_json_with_vfs(
-        vfs: Vfs,
+        mut vfs: Vfs,
         saved_state_json: Option<&str>,
         username: &str,
     ) -> Option<Self> {
+        let (uid, gid, user_db) = bootstrap_permissions(&mut vfs, username);
         let mut state = Self::new(vfs);
         state.username = username.to_string();
+        state.uid = uid;
+        state.gid = gid;
+        state.euid = uid;
+        state.user_db = user_db;
         state
             .env_vars
             .insert("USER".to_string(), username.to_string());
@@ -193,6 +233,17 @@ impl ShellState {
                     state
                         .env_vars
                         .insert("HOSTNAME".to_string(), hostname.to_string());
+                }
+
+                // Restore uid/gid/euid (from su/sudo sessions)
+                if let Some(uid) = saved.get("uid").and_then(|v| v.as_u64()) {
+                    state.uid = uid as u32;
+                }
+                if let Some(gid) = saved.get("gid").and_then(|v| v.as_u64()) {
+                    state.gid = gid as u32;
+                }
+                if let Some(euid) = saved.get("euid").and_then(|v| v.as_u64()) {
+                    state.euid = euid as u32;
                 }
             }
         }
@@ -379,6 +430,61 @@ impl Default for Service {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Permission bootstrap — create /etc files and resolve user identity
+// ---------------------------------------------------------------------------
+
+/// Ensure `/etc/passwd`, `/etc/group`, and `/etc/sudoers` exist in the VFS
+/// with sensible defaults.  Then parse them to resolve the given username's
+/// uid/gid and build the cached [`UserDatabase`].
+///
+/// Returns `(uid, gid, user_db)`.
+fn bootstrap_permissions(vfs: &mut Vfs, username: &str) -> (u32, u32, UserDatabase) {
+    // Create /etc/passwd if missing
+    if !vfs.exists("/etc/passwd") {
+        let default_passwd = format!(
+            "root:x:0:0:root:/root:/bin/bash\n\
+             {}:x:1000:1000:{}:/home/{}:/bin/nexsh\n",
+            username, username, username
+        );
+        let _ = vfs.write_file("/etc/passwd", &default_passwd);
+    }
+
+    // Create /etc/group if missing
+    if !vfs.exists("/etc/group") {
+        let default_group = format!(
+            "root:x:0:\n\
+             {}:x:1000:{}\n",
+            username, username
+        );
+        let _ = vfs.write_file("/etc/group", &default_group);
+    }
+
+    // Create /etc/sudoers if missing
+    if !vfs.exists("/etc/sudoers") {
+        let default_sudoers = format!("{} ALL=(ALL) NOPASSWD: ALL\n", username);
+        let _ = vfs.write_file("/etc/sudoers", &default_sudoers);
+    }
+
+    // Mark the newly created files as dirty so they persist
+    vfs.mark_dirty("/etc/passwd");
+    vfs.mark_dirty("/etc/group");
+    vfs.mark_dirty("/etc/sudoers");
+
+    // Parse the database
+    let user_db = UserDatabase::from_vfs(vfs);
+
+    // Resolve uid/gid for the current username
+    let (uid, gid) = if let Some(entry) = user_db.find_user_by_name(username) {
+        (entry.uid, entry.gid)
+    } else {
+        // Fallback if user not found in /etc/passwd
+        (1000u32, 1000u32)
+    };
+
+    (uid, gid, user_db)
 }
 
 #[cfg(test)]

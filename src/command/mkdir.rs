@@ -59,6 +59,8 @@ use crate::vfs::{HostFs, Vfs};
 pub fn execute(
     vfs: &mut Vfs,
     args: &[&str],
+    uid: u32,
+    gid: u32,
     host_fs: Option<&dyn HostFs>,
 ) -> Result<String, String> {
     let mut recursive = false;
@@ -93,7 +95,7 @@ pub fn execute(
                 current.push('/');
                 current.push_str(component);
                 if !vfs.exists_with_host(&current, host_fs).unwrap_or(false) {
-                    vfs.mkdir_with_host(&current, host_fs)?;
+                    vfs.mkdir_with_host_and_owner(&current, host_fs, uid, gid)?;
                 }
             }
         } else {
@@ -124,7 +126,7 @@ pub fn execute(
                 ));
             }
 
-            vfs.mkdir_with_host(&resolved, host_fs)?;
+            vfs.mkdir_with_host_and_owner(&resolved, host_fs, uid, gid)?;
         }
     }
 
@@ -149,7 +151,14 @@ impl super::Command for MkdirCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
+        execute(
+            &mut ctx.state.vfs,
+            ctx.args,
+            ctx.state.uid,
+            ctx.state.gid,
+            ctx.host_fs,
+        )
+        .into()
     }
 
     fn synopsis(&self) -> &'static str {

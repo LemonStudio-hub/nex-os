@@ -263,6 +263,7 @@ pub mod cd;
 pub mod chmod;
 pub mod chown;
 pub mod clear;
+pub mod comm;
 pub mod cp;
 pub mod cut;
 pub mod date;
@@ -275,27 +276,41 @@ pub mod exit;
 pub mod export;
 pub mod find;
 pub mod grep;
+pub mod groupadd;
+pub mod groups;
 pub mod head;
 pub mod help;
 pub mod history;
 pub mod hostname;
+pub mod id;
 pub mod ln;
 pub mod ls;
 pub mod man;
 pub mod mkdir;
 pub mod mount;
 pub mod mv;
+pub mod nl;
+pub mod passwd;
+pub mod paste;
+pub mod printf;
 pub mod pwd;
+pub mod rev;
 pub mod rm;
+pub mod seq;
 pub mod sort;
+pub mod su;
+pub mod sudo;
+pub mod tac;
 pub mod tail;
 pub mod tee;
 pub mod touch;
 pub mod tr;
 pub mod tree;
 pub mod uniq;
+pub mod useradd;
 pub mod wc;
 pub mod whoami;
+pub mod yes;
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -336,6 +351,14 @@ fn register_all(commands: &mut Vec<Box<dyn Command>>) {
     commands.push(Box::new(cut::CutCommand));
     commands.push(Box::new(tr::TrCommand));
     commands.push(Box::new(tee::TeeCommand));
+    commands.push(Box::new(comm::CommCommand));
+    commands.push(Box::new(nl::NlCommand));
+    commands.push(Box::new(paste::PasteCommand));
+    commands.push(Box::new(rev::RevCommand));
+    commands.push(Box::new(seq::SeqCommand));
+    commands.push(Box::new(tac::TacCommand));
+    commands.push(Box::new(yes::YesCommand));
+    commands.push(Box::new(printf::PrintfCommand));
 
     // Diff
     commands.push(Box::new(diff::DiffCommand));
@@ -349,6 +372,16 @@ fn register_all(commands: &mut Vec<Box<dyn Command>>) {
     // Permissions & ownership
     commands.push(Box::new(chmod::ChmodCommand));
     commands.push(Box::new(chown::ChownCommand));
+
+    // User & group management
+    commands.push(Box::new(id::IdCommand));
+    commands.push(Box::new(groups::GroupsCommand));
+    commands.push(Box::new(useradd::UseraddCommand));
+    commands.push(Box::new(useradd::AdduserCommand));
+    commands.push(Box::new(groupadd::GroupaddCommand));
+    commands.push(Box::new(passwd::PasswdCommand));
+    commands.push(Box::new(su::SuCommand));
+    commands.push(Box::new(sudo::SudoCommand));
 
     // System info
     commands.push(Box::new(whoami::WhoamiCommand));

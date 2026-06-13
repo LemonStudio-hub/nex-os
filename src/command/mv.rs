@@ -29,30 +29,21 @@
 //! * Fewer than two arguments (missing destination).
 //! * Source path does not exist.
 
+use crate::vfs::permissions::{check_access, AccessMode};
 use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `mv` command.
 ///
-/// Resolves both source and destination paths, verifies the source exists,
-/// then performs a copy + remove using `_with_host` variants so that
-/// mounted host directories are transparently supported.
-///
-/// # Arguments
-///
-/// * `vfs` -- Mutable reference to the virtual file system.
-/// * `args` -- Command-line arguments: `[source, destination]`.
-/// * `host_fs` -- Optional host filesystem adapter for mounted directories.
-///
-/// # Returns
-///
-/// `Ok(String::new())` on success (mv produces no output), or
-/// `Err(message)` if the source is missing or the move fails.
+/// Resolves both source and destination paths, checks permissions (write on
+/// source parent for deletion, write on dest parent for creation), then
+/// performs the move.  Ownership is preserved for intra-VFS moves.
 pub fn execute(
     vfs: &mut Vfs,
     args: &[&str],
+    uid: u32,
+    gid: u32,
     host_fs: Option<&dyn HostFs>,
 ) -> Result<String, String> {
-    // Both source and destination are required.
     if args.len() < 2 {
         return Err("mv: missing destination operand".to_string());
     }
@@ -60,8 +51,6 @@ pub fn execute(
     let src = args[0];
     let dst = args[1];
 
-    // Resolve to absolute VFS paths so the Vfs layer doesn't need to
-    // handle relative path logic.
     let src_resolved = vfs.resolve_path(src)?;
     let dst_resolved = vfs.resolve_path(dst)?;
 
@@ -75,8 +64,20 @@ pub fn execute(
         ));
     }
 
-    // Determine the actual destination: if dst is an existing directory,
-    // move into it preserving the source basename.
+    // Permission checks (skip for host-mounted paths)
+    if host_fs.is_none() || vfs.find_mount(&src_resolved).is_none() {
+        // Write on source parent (for deletion)
+        let src_parent = match src_resolved.rfind('/') {
+            Some(0) => "/".to_string(),
+            Some(i) => src_resolved[..i].to_string(),
+            None => return Err("mv: invalid source path".to_string()),
+        };
+        if let Some(meta) = vfs.get_meta(&src_parent) {
+            check_access(meta, AccessMode::Write, uid, gid)?;
+        }
+    }
+
+    // Determine actual destination
     let actual_dst = if vfs
         .is_dir_with_host(&dst_resolved, host_fs)
         .unwrap_or(false)
@@ -87,7 +88,19 @@ pub fn execute(
         dst_resolved.clone()
     };
 
-    // Copy the source to the destination using _with_host variants.
+    // Write on dest parent (for creation)
+    let dst_parent = match actual_dst.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(i) => actual_dst[..i].to_string(),
+        None => return Err("mv: invalid destination path".to_string()),
+    };
+    if host_fs.is_none() || vfs.find_mount(&dst_parent).is_none() {
+        if let Some(meta) = vfs.get_meta(&dst_parent) {
+            check_access(meta, AccessMode::Write, uid, gid)?;
+        }
+    }
+
+    // Perform the move (ownership is preserved — the node itself moves)
     if vfs
         .is_dir_with_host(&src_resolved, host_fs)
         .unwrap_or(false)
@@ -100,6 +113,13 @@ pub fn execute(
             .map_err(|e| format!("mv: {}", e))?;
         vfs.write_file_with_host(&actual_dst, &content, host_fs)
             .map_err(|e| format!("mv: {}", e))?;
+        // Preserve original ownership
+        let src_meta = vfs.get_meta(&src_resolved).cloned();
+        if let (Some(meta), Some(dst_meta)) = (src_meta, vfs.get_meta_mut(&actual_dst)) {
+            dst_meta.uid = meta.uid;
+            dst_meta.gid = meta.gid;
+            dst_meta.mode = meta.mode;
+        }
         vfs.rm_with_host(&src_resolved, host_fs)?;
     }
 
@@ -156,7 +176,14 @@ impl super::Command for MvCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
+        execute(
+            &mut ctx.state.vfs,
+            ctx.args,
+            ctx.state.euid,
+            ctx.state.gid,
+            ctx.host_fs,
+        )
+        .into()
     }
 
     fn synopsis(&self) -> &'static str {
@@ -176,27 +203,23 @@ mod tests {
     use super::*;
 
     #[test]
-    /// Moving a file should remove the source and create the destination
-    /// with identical content.
     fn move_file() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/old.txt", "data").unwrap();
-        execute(&mut vfs, &["/tmp/old.txt", "/tmp/new.txt"], None).unwrap();
+        execute(&mut vfs, &["/tmp/old.txt", "/tmp/new.txt"], 0, 0, None).unwrap();
         assert!(!vfs.exists("/tmp/old.txt"));
         assert_eq!(vfs.read_file("/tmp/new.txt").unwrap(), "data");
     }
 
     #[test]
-    /// Moving a non-existent source should produce an error.
     fn move_nonexistent_errors() {
         let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &["/nope", "/tmp/dst"], None).is_err());
+        assert!(execute(&mut vfs, &["/nope", "/tmp/dst"], 0, 0, None).is_err());
     }
 
     #[test]
-    /// Omitting the destination argument should produce an error.
     fn missing_destination() {
         let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &["/tmp/src"], None).is_err());
+        assert!(execute(&mut vfs, &["/tmp/src"], 0, 0, None).is_err());
     }
 }

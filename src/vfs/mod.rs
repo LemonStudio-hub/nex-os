@@ -19,10 +19,14 @@
 pub mod host_fs;
 pub mod host_fs_wasm;
 mod node;
+pub mod permissions;
 mod tree;
+pub mod user_db;
 
 // Re-export the public types so consumers can write `use crate::vfs::Vfs`
 // instead of `use crate::vfs::tree::Vfs`.
 pub use host_fs::{HostEntry, HostFs};
 pub use node::{ChunkedContent, DirNode, FileNode, FsNode};
-pub use tree::Vfs;
+pub use permissions::{default_dir_meta, default_file_meta, NodeMeta};
+pub use tree::{current_timestamp, Vfs};
+pub use user_db::UserDatabase;

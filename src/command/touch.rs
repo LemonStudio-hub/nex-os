@@ -43,6 +43,8 @@ use crate::vfs::{HostFs, Vfs};
 pub fn execute(
     vfs: &mut Vfs,
     args: &[&str],
+    uid: u32,
+    gid: u32,
     host_fs: Option<&dyn HostFs>,
 ) -> Result<String, String> {
     if args.is_empty() {
@@ -51,7 +53,7 @@ pub fn execute(
 
     for path in args {
         let resolved = vfs.resolve_path(path)?;
-        vfs.touch_with_host(&resolved, host_fs)?;
+        vfs.touch_with_host_and_owner(&resolved, host_fs, uid, gid)?;
     }
 
     // touch produces no output on success.
@@ -78,7 +80,14 @@ impl super::Command for TouchCommand {
     /// Entry point called by the shell dispatcher. Delegates to the
     /// standalone [`execute`] function with VFS and args from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
+        execute(
+            &mut ctx.state.vfs,
+            ctx.args,
+            ctx.state.uid,
+            ctx.state.gid,
+            ctx.host_fs,
+        )
+        .into()
     }
 
     fn synopsis(&self) -> &'static str {

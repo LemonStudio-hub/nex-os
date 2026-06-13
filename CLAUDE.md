@@ -54,14 +54,41 @@ npx wrangler pages deploy web/dist/ --project-name=nexos
 ### Core Rust Modules (`src/`)
 
 - **`lib.rs`** — WASM entry point. Exports 18 functions: `init`, `init_with_username`, `execute_command`, `get_prompt`, `get_completions`, `get_history`, `get_state_json`, `get_dirty_files_json`, `get_deleted_files_json`, `get_file_content`, `mark_all_dirty`, `get_tree_json`, `register_host_fs`, `unregister_host_fs`, `write_file_to_vfs`, `get_state_dirty_flags`, `mark_state_clean`, `get_non_vfs_state_json`, `apply_saved_state`. Holds immutable `Service` and `HOST_FS_REGISTRY` in `thread_local!` `RefCell`s. All exports accept `state_json: &str` — the frontend owns and passes state.
-- **`vfs/mod.rs`** — Re-exports `Vfs`, `FsNode`, `FileNode`, `DirNode`, `ChunkedContent`, `HostFs`, `HostEntry`. Submodules: `host_fs` (trait), `host_fs_wasm` (JS callback bridge).
-- **`vfs/node.rs`** — Data types: `FsNode` enum (File/Directory), `FileNode` (name + `ChunkedContent`), `DirNode` (name + HashMap children). `ChunkedContent` provides chunked string storage (64 KiB chunks, 4 KiB inline threshold) with custom serde supporting legacy plain-string and new chunked-object formats.
-- **`vfs/tree.rs`** — `Vfs` struct with path resolution (handles `.`, `..`, `~`), file/directory CRUD, dirty tracking (`dirty_files`/`deleted_files` HashSets, `serde(skip)`), partial-read methods (`read_file_lines`, `file_line_count`, `file_size`), `to_tree_json()` for skeleton-only serialization, and full JSON roundtrip. All paths are absolute strings internally.
-- **`shell/mod.rs`** — `ShellState` (serializable: Vfs + username + hostname + history + env_vars + last_exit_code + dirty_state) and `Service` (stateless: Registry only). `Service::execute_command()` returns `CommandOutput` (stdout, stderr, exit_code, action) and handles `&&` chaining. `StateDirtyFlags` tracks non-VFS state changes (history, env_vars) for incremental persistence. `to_state_json()` / `from_state_json_with_vfs()` enable separate persistence of non-VFS state to `nexos_state.json`.
+- **`vfs/mod.rs`** — Re-exports `Vfs`, `FsNode`, `FileNode`, `DirNode`, `ChunkedContent`, `HostFs`, `HostEntry`, `NodeMeta`, `UserDatabase`. Submodules: `host_fs` (trait), `host_fs_wasm` (JS callback bridge), `permissions` (Unix permission system), `user_db` (user/group/sudoers parsing).
+- **`vfs/node.rs`** — Data types: `FsNode` enum (File/Directory), `FileNode` (name + `ChunkedContent` + `NodeMeta`), `DirNode` (name + HashMap children + `NodeMeta`). `ChunkedContent` provides chunked string storage (64 KiB chunks, 4 KiB inline threshold) with custom serde supporting legacy plain-string and new chunked-object formats. Each node carries `NodeMeta` (mode, uid, gid, mtime) with `#[serde(default)]` for backward compatibility.
+- **`vfs/tree.rs`** — `Vfs` struct with path resolution (handles `.`, `..`, `~`), file/directory CRUD, dirty tracking (`dirty_files`/`deleted_files` HashSets, `serde(skip)`), partial-read methods (`read_file_lines`, `file_line_count`, `file_size`), `to_tree_json()` for skeleton-only serialization, and full JSON roundtrip. All paths are absolute strings internally. Default tree assigns root:root ownership, sticky bit on `/tmp`, and uid/gid 1000 on `/home/user`. Provides `mkdir_with_owner()`, `touch_with_owner()`, `write_file_with_owner()` variants.
+- **`vfs/permissions.rs`** — Unix-style permission system: `NodeMeta` struct (mode u16, uid, gid, mtime), `AccessMode` enum (Read/Write/Execute), `check_access()` (enforces rwx bits, root bypasses all), `check_delete_in_sticky()` (sticky bit enforcement), `parse_octal_mode()`, `apply_symbolic_mode()` (supports `+x`, `-w`, `u+r`, `a+x`, `g-rwx`), `format_mode()` (10-char `rwxrwxrwx` string for `ls -l`).
+- **`vfs/user_db.rs`** — Parses `/etc/passwd`, `/etc/group`, `/etc/sudoers` into `UserDatabase` struct. Provides `find_user_by_uid/name`, `find_group_by_gid/name`, `has_nopasswd_sudo`, `next_uid/gid`, `user_groups`. Supports simplified sudoers format (`user ALL=(ALL) NOPASSWD: ALL`). Rebuilt from VFS on every state load (not persisted directly).
+- **`shell/mod.rs`** — `ShellState` (serializable: Vfs + username + hostname + uid + gid + euid + history + env_vars + last_exit_code + dirty_state) and `Service` (stateless: Registry only). `Service::execute_command()` returns `CommandOutput` (stdout, stderr, exit_code, action) and handles `&&` chaining. `StateDirtyFlags` tracks non-VFS state changes (history, env_vars) for incremental persistence. `to_state_json()` / `from_state_json_with_vfs()` enable separate persistence of non-VFS state to `nexos_state.json`. `bootstrap_permissions()` creates `/etc/passwd`, `/etc/group`, `/etc/sudoers` on first run. `refresh_user_db()` rebuilds the cached `UserDatabase` after user/group modifications.
 - **`shell/pipeline.rs`** — `split_pipe_stages()` (splits by `|` respecting quotes), `extract_redirect()` (extracts `>`/`>>` targets).
 - **`shell/dispatch.rs`** — `Service::execute_with_stdin()` method. Looks up commands via the Registry and creates a `CommandContext` for execution.
 - **`command/mod.rs`** — `Command` trait (7 methods: `name()`, `description()`, `execute()` required; `accepts_stdin()`, `synopsis()`, `man_description()`, `examples()` with defaults), `CommandOutput` struct (stdout, stderr, exit_code, action), `CommandContext` struct, `Registry` struct. `CommandOutput` replaces the old `Result<String, String>` return type — `From<Result<String, String>>` is implemented for backward compatibility. The registry is built once at service init.
 - **`command/*.rs`** — One file per command. Each exports a bare `execute()` function AND a struct implementing `Command` that delegates to it.
+
+### Unix Permissions and User Management
+
+NexOS implements a simulated Unix permission and multi-user system. All permission data is stored in VFS metadata and `/etc/` files, enforced at the command level.
+
+**Permissions (`vfs/permissions.rs`):**
+- Every VFS node (file/directory) carries `NodeMeta`: `mode` (u16 permission bits), `uid`, `gid`, `mtime` (epoch seconds).
+- `check_access()` enforces standard rwx bits (owner → group → other). Root (uid 0) always bypasses.
+- Sticky bit (`0o1000`) on `/tmp` — only file owner, dir owner, or root can delete.
+- `chmod` supports both octal (`755`, `0644`) and symbolic (`+x`, `u+r`, `g-rwx`) modes. Only owner or root can change permissions.
+- `chown` supports `owner[:group]` syntax with name or numeric resolution. Only root can change ownership.
+- `ls -l` displays `rwxrwxrwx` strings, owner/group names (resolved via UserDatabase), size, and mtime.
+
+**User/Group Database (`vfs/user_db.rs`):**
+- `UserDatabase` parses `/etc/passwd`, `/etc/group`, `/etc/sudoers` into structured entries.
+- `/etc/passwd` format: `username:x:uid:gid:gecos:home_dir:shell`
+- `/etc/group` format: `groupname:x:gid:member1,member2`
+- `/etc/sudoers` format: `user ALL=(ALL) NOPASSWD: ALL`
+- Database is rebuilt from VFS on every state load (not persisted separately).
+
+**Shell state fields:** `uid`, `gid`, `euid` (effective UID for sudo), `user_db` (cached, `#[serde(skip)]`).
+
+**Bootstrap:** `bootstrap_permissions()` runs on init — creates `/etc/passwd` (root + current user), `/etc/group` (root + user group), `/etc/sudoers` (NOPASSWD ALL for current user) if missing. Default user gets uid/gid 1000.
+
+**Commands:** `id`, `groups`, `useradd`/`adduser`, `groupadd`, `passwd`, `su`, `sudo`. See the command list below for details.
 
 ### Host Directory Mounting
 
@@ -99,6 +126,38 @@ NexOS supports transferring files between the host machine and the VFS using the
 
 **`write_file_to_vfs(state_json, path, content)`** — New WASM export that writes file content directly into the VFS, creating parent directories as needed. Used by the upload flow after the frontend reads file content from the host.
 
+### Command List (53 commands)
+
+**Filesystem navigation:** `ls` (`-l`, `-a`, `-h`, `-R`, `-t`, `-r`, `-S`), `cd`, `pwd`, `mkdir` (`-p`), `touch`, `rm` (`-r`, `-f`), `cp` (`-r`), `mv`, `tree`, `ln` (`-s`)
+
+**File content:** `cat` (`-n`), `echo`, `head` (`-n`), `tail` (`-n`)
+
+**Text processing:** `grep` (`-i`, `-v`, `-n`, `-c`, `-l`, `-r`), `sort` (`-r`, `-n`, `-u`, `-k`, `-t`), `uniq` (`-c`, `-d`), `wc` (`-l`, `-w`, `-c`), `cut` (`-d`, `-f`), `tr`, `tee`, `comm` (`-1`, `-2`, `-3`), `nl`, `paste` (`-d`), `rev`, `seq`, `tac`, `yes` (`-n`), `printf`
+
+**Diff:** `diff` (`-u`, `-y`, `--color`)
+
+**Search:** `find` (`-name`, `-type`, `-mtime`, `-size`)
+
+**Disk usage:** `du` (`-h`, `-s`)
+
+**Permissions & ownership:** `chmod` (octal + symbolic), `chown` (`owner[:group]`)
+
+**User & group management:** `id`, `groups`, `useradd`/`adduser` (`-m`, `-s`, `-g`), `groupadd` (`-g`), `passwd`, `su` (`-`), `sudo` (`-u`)
+
+**System info:** `whoami`, `hostname`, `date`, `history`
+
+**Environment:** `env`, `export`
+
+**Path utilities:** `basename`, `dirname`
+
+**Mount:** `mount` (`-u`)
+
+**Upload/Download:** `upload`, `download`
+
+**Documentation:** `man`
+
+**Terminal:** `clear`, `help`, `exit`
+
 ### Adding a New Command
 
 1. Create `src/command/<name>.rs` with a struct implementing the `Command` trait (name, description, accepts_stdin, execute returning `CommandOutput`)
@@ -128,7 +187,7 @@ The trait metadata (`name()`, `accepts_stdin()`) automatically handles tab compl
 - Redirection (`>`/`>>`) is only applied on the last stage of a pipeline.
 - The `clear` command returns ANSI escape `\x1b[2J\x1b[H` — the frontend interprets this as a screen clear.
 - Shell state is serialized to JSON after every command execution. OPFS persistence is incremental: dirty files are written individually to `nexos_files/`, deleted files are removed, a tree skeleton (`nexos_tree.json`) is saved separately, and non-VFS state (history, env_vars, hostname) is persisted to `nexos_state.json` when dirty. `StateDirtyFlags` tracks which non-VFS fields have changed. This avoids rewriting the entire VFS on every command.
-- `chmod`/`chown` are simulated (no real permission enforcement).
+- `chmod`/`chown` enforce permission bits and ownership via `check_access()`. Root (uid 0) bypasses all checks. The sticky bit is enforced on `/tmp`.
 
 ## Toolchain
 

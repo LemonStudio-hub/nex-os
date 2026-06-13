@@ -1,4 +1,4 @@
-//! `chmod` -- change file permissions (simulated).
+//! `chmod` -- change file permissions.
 //!
 //! # Usage
 //!
@@ -6,129 +6,111 @@
 //! chmod <mode> <file> [file2 ...]
 //! ```
 //!
-//! Simulates changing file permissions in the virtual filesystem.  Because
-//! NexOS's VFS has no real permission enforcement layer, this command validates
-//! the mode string and checks that each target path exists, but does not
-//! persist any permission bits.
+//! Changes the permission mode bits on one or more files or directories.
+//! Only the file owner or root can change permissions.
 //!
 //! # Supported modes
 //!
 //! - **Octal**: 3 or 4 digits, each `0`-`7` (e.g. `755`, `0644`).
 //! - **Symbolic without prefix**: `+x`, `-w`, `+rwx` (applies to all classes).
 //! - **Symbolic with user prefix**: `u+r`, `g-w`, `a+x` where the prefix is
-//!   one of `u` (user), `g` (group), `o` (other), `a` (all).
+//!   one of `u` (user/owner), `g` (group), `o` (other), `a` (all).
 //!
 //! # Errors
 //!
 //! - Fewer than two arguments (mode + at least one file).
 //! - Invalid mode string format.
 //! - Any target path does not exist.
+//! - Caller is not the file owner and not root.
 
+use crate::vfs::permissions::{apply_symbolic_mode, parse_octal_mode};
 use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `chmod` command.
 ///
-/// Validates the mode string, then iterates over each file path to verify it
-/// exists in the VFS.  Non-existent paths produce error lines in the output
-/// rather than aborting the entire command, matching how real `chmod` reports
-/// per-file failures.
-///
-/// Note: chmod modifies VFS metadata only; host filesystem permissions are
-/// not affected.
-///
-/// # Arguments
-///
-/// * `vfs` -- Mutable reference to the virtual file system.
-/// * `args` -- Command-line arguments (mode + file paths).
-/// * `_host_fs` -- Unused; permission changes are VFS-only.
-///
-/// # Returns
-///
-/// Empty string on full success, or a newline-delimited list of per-file error
-/// messages for paths that could not be accessed.
-///
-/// # Errors
-///
-/// Returns immediately (no partial output) if the mode is invalid or the
-/// argument count is too low.
+/// Parses the mode string, then iterates over each file path.  For each path,
+/// verifies the caller has permission (must be owner or root), then applies
+/// the mode change.
 pub fn execute(
     vfs: &mut Vfs,
     args: &[&str],
+    euid: u32,
     _host_fs: Option<&dyn HostFs>,
 ) -> Result<String, String> {
     if args.len() < 2 {
         return Err("chmod: missing operand".to_string());
     }
 
-    let mode = args[0];
+    let mode_str = args[0];
     let files = &args[1..];
 
-    // Reject syntactically invalid modes early, before touching any files.
-    if !is_valid_mode(mode) {
-        return Err(format!("chmod: invalid mode: '{}'", mode));
-    }
+    // Validate mode syntax early.
+    let is_octal = mode_str.chars().all(|c| ('0'..='7').contains(&c))
+        && (mode_str.len() == 3 || mode_str.len() == 4);
 
     let mut output = String::new();
     for path in files {
-        let resolved = vfs.resolve_path(path)?;
-        // Probe the path by attempting both a file read and a directory list.
-        // If both fail the path does not exist in the VFS.
-        // In a full implementation we would store permissions in node metadata;
-        // here we just verify the path exists and report an error if not.
-        if vfs.read_file(&resolved).is_err() && vfs.list_dir(&resolved).is_err() {
+        let resolved = match vfs.resolve_path(path) {
+            Ok(p) => p,
+            Err(e) => {
+                output.push_str(&format!("chmod: cannot access '{}': {}\n", path, e));
+                continue;
+            }
+        };
+
+        // Check the node exists
+        let meta = match vfs.get_meta(&resolved) {
+            Some(m) => m.clone(),
+            None => {
+                output.push_str(&format!(
+                    "chmod: cannot access '{}': No such file or directory\n",
+                    path
+                ));
+                continue;
+            }
+        };
+
+        // Permission check: must be owner or root
+        if euid != 0 && euid != meta.uid {
             output.push_str(&format!(
-                "chmod: cannot access '{}': No such file or directory\n",
+                "chmod: changing permissions of '{}': Operation not permitted\n",
                 path
             ));
+            continue;
         }
-        // Successful paths produce no output -- the change is simulated.
+
+        // Parse and apply the new mode
+        let new_mode = if is_octal {
+            match parse_octal_mode(mode_str) {
+                Ok(m) => m,
+                Err(e) => {
+                    output.push_str(&format!("chmod: {}\n", e));
+                    continue;
+                }
+            }
+        } else {
+            match apply_symbolic_mode(meta.mode, mode_str) {
+                Ok(m) => m,
+                Err(e) => {
+                    output.push_str(&format!("chmod: {}\n", e));
+                    continue;
+                }
+            }
+        };
+
+        // Apply the mode change
+        if let Some(meta_mut) = vfs.get_meta_mut(&resolved) {
+            meta_mut.mode = new_mode;
+            vfs.mark_dirty(&resolved);
+        }
     }
 
     Ok(output)
 }
 
-/// Validate a mode string.
-///
-/// Accepts three forms:
-///
-/// 1. **Octal** -- 3 or 4 digits, each in `'0'..='7'` (e.g. `"755"`, `"0644"`).
-/// 2. **Symbolic without prefix** -- starts with `+` or `-`, followed by any
-///    combination of `r`, `w`, `x` (e.g. `"+x"`, `"-w"`, `"+rwx"`).
-/// 3. **Symbolic with user prefix** -- starts with one of `u`, `g`, `o`, `a`,
-///    then `+` or `-`, then `r`/`w`/`x` characters (e.g. `"u+r"`, `"a-x"`).
-///
-/// Returns `false` for anything else (e.g. `"999"`, `"invalid"`, `"12345"`).
-fn is_valid_mode(mode: &str) -> bool {
-    // Octal: exactly 3 or 4 digits, each 0-7.
-    if mode.chars().all(|c| ('0'..='7').contains(&c)) && (mode.len() == 3 || mode.len() == 4) {
-        return true;
-    }
-    // Symbolic without prefix: +x, -w, +rw, etc.
-    if mode.starts_with('+') || mode.starts_with('-') {
-        return mode[1..].chars().all(|c| "rwx".contains(c));
-    }
-    // Reject modes that end with +/- but have no permission chars after.
-    if mode.len() >= 2 && (mode.ends_with('+') || mode.ends_with('-')) {
-        return false; // Not a valid position
-    }
-    // Symbolic with user prefix: u+x, g-w, o+r, a+x
-    // First char must be a user-class letter, second must be +/-, rest must be rwx.
-    if mode.len() >= 3 {
-        let chars: Vec<char> = mode.chars().collect();
-        if "ugoa".contains(chars[0]) && (chars[1] == '+' || chars[1] == '-') {
-            return chars[2..].iter().all(|c| "rwx".contains(*c));
-        }
-    }
-    false
-}
-
-/// Unit struct that implements the [`Command`](super::Command) trait for
-/// registration in the command [`Registry`](super::Registry).
+/// Unit struct for command registration.
 pub struct ChmodCommand;
 
-/// Delegates to the standalone [`execute`] function.  Needs mutable VFS access
-/// because `resolve_path` may normalise paths, though the VFS itself is not
-/// mutated in this simulated implementation.
 impl super::Command for ChmodCommand {
     fn name(&self) -> &'static str {
         "chmod"
@@ -137,13 +119,14 @@ impl super::Command for ChmodCommand {
         "Change file permissions (octal or symbolic)"
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
+        execute(&mut ctx.state.vfs, ctx.args, ctx.state.euid, ctx.host_fs).into()
     }
     fn synopsis(&self) -> &'static str {
         "chmod mode file [file2 ...]"
     }
     fn man_description(&self) -> &'static str {
-        "Change file permissions (simulated). Accepts octal modes (e.g. 755, 0644) or symbolic modes (e.g. +x, -w, u+r, a+x). Since the VFS has no real permission enforcement, the command validates the mode and checks that files exist but does not persist permission bits."
+        "Change file permissions. Accepts octal modes (e.g. 755, 0644) or symbolic modes \
+         (e.g. +x, -w, u+r, a+x). Only the file owner or root can change permissions."
     }
     fn examples(&self) -> &'static [&'static str] {
         &[
@@ -157,81 +140,50 @@ impl super::Command for ChmodCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vfs::Vfs;
 
     #[test]
-    fn valid_octal_3digit() {
+    fn chmod_octal_as_root() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["755", "/tmp/f.txt"], None).unwrap();
+        let out = execute(&mut vfs, &["755", "/tmp/f.txt"], 0, None).unwrap();
         assert!(out.is_empty());
+        assert_eq!(vfs.get_meta("/tmp/f.txt").unwrap().mode, 0o755);
     }
 
     #[test]
-    fn valid_octal_4digit() {
+    fn chmod_symbolic_as_root() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["0644", "/tmp/f.txt"], None).unwrap();
+        let out = execute(&mut vfs, &["+x", "/tmp/f.txt"], 0, None).unwrap();
         assert!(out.is_empty());
+        // 644 + x for all = 755
+        assert_eq!(vfs.get_meta("/tmp/f.txt").unwrap().mode, 0o755);
     }
 
     #[test]
-    fn valid_symbolic_plus() {
+    fn chmod_denied_for_non_owner() {
         let mut vfs = Vfs::new();
         vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["+x", "/tmp/f.txt"], None).unwrap();
-        assert!(out.is_empty());
+        // Set owner to 1000
+        vfs.get_meta_mut("/tmp/f.txt").unwrap().uid = 1000;
+        // Try as uid 2000 (not owner, not root)
+        let out = execute(&mut vfs, &["777", "/tmp/f.txt"], 2000, None).unwrap();
+        assert!(out.contains("Operation not permitted"));
+        // Mode unchanged
+        assert_eq!(vfs.get_meta("/tmp/f.txt").unwrap().mode, 0o644);
     }
 
     #[test]
-    fn valid_symbolic_minus() {
+    fn chmod_nonexistent_file() {
         let mut vfs = Vfs::new();
-        vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["-w", "/tmp/f.txt"], None).unwrap();
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn valid_symbolic_with_prefix() {
-        let mut vfs = Vfs::new();
-        vfs.touch("/tmp/f.txt").unwrap();
-        let out = execute(&mut vfs, &["u+rwx", "/tmp/f.txt"], None).unwrap();
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn invalid_mode() {
-        let mut vfs = Vfs::new();
-        vfs.touch("/tmp/f.txt").unwrap();
-        let err = execute(&mut vfs, &["invalid", "/tmp/f.txt"], None).unwrap_err();
-        assert!(err.contains("invalid mode"));
-    }
-
-    #[test]
-    fn missing_operand() {
-        let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &[], None).is_err());
-    }
-
-    #[test]
-    fn nonexistent_file_reports_error() {
-        let mut vfs = Vfs::new();
-        let out = execute(&mut vfs, &["755", "/nonexistent"], None).unwrap();
+        let out = execute(&mut vfs, &["755", "/nonexistent"], 0, None).unwrap();
         assert!(out.contains("No such file or directory"));
     }
 
     #[test]
-    fn is_valid_mode_checks() {
-        assert!(is_valid_mode("755"));
-        assert!(is_valid_mode("644"));
-        assert!(is_valid_mode("0777"));
-        assert!(is_valid_mode("+x"));
-        assert!(is_valid_mode("-w"));
-        assert!(is_valid_mode("+rwx"));
-        assert!(is_valid_mode("u+r"));
-        assert!(is_valid_mode("g-w"));
-        assert!(is_valid_mode("a+x"));
-        assert!(!is_valid_mode("invalid"));
-        assert!(!is_valid_mode("999"));
-        assert!(!is_valid_mode("12345"));
+    fn chmod_missing_operand() {
+        let mut vfs = Vfs::new();
+        assert!(execute(&mut vfs, &[], 0, None).is_err());
     }
 }

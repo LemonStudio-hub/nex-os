@@ -24,25 +24,18 @@
 //! - VFS-level copy errors (e.g. destination already exists as a file in some
 //!   implementations).
 
+use crate::vfs::permissions::{check_access, AccessMode};
 use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `cp` command.
 ///
-/// Resolves both source and destination paths, verifies the source exists, then
-/// performs the copy. Uses `_with_host` variants so that mounted host
-/// directories are transparently supported.
-///
-/// # Returns
-///
-/// `Ok(String::new())` -- successful `cp` produces no output, matching POSIX.
-///
-/// # Errors
-///
-/// Returns an error if the source does not exist or the underlying VFS copy
-/// operation fails.
+/// Resolves both source and destination paths, checks permissions, then
+/// performs the copy.  The copy is owned by the current user.
 pub fn execute(
     vfs: &mut Vfs,
     args: &[&str],
+    uid: u32,
+    gid: u32,
     host_fs: Option<&dyn HostFs>,
 ) -> Result<String, String> {
     if args.len() < 2 {
@@ -52,8 +45,6 @@ pub fn execute(
     let src = args[0];
     let dst = args[1];
 
-    // Resolve both paths to absolute VFS paths before checking existence or
-    // copying.  This handles relative paths, `..`, and `~` uniformly.
     let src_resolved = vfs.resolve_path(src)?;
     let dst_resolved = vfs.resolve_path(dst)?;
 
@@ -67,8 +58,15 @@ pub fn execute(
         ));
     }
 
-    // Determine the actual destination: if dst is an existing directory,
-    // copy into it preserving the source basename.
+    // Permission checks (skip for host-mounted paths)
+    if host_fs.is_none() || vfs.find_mount(&src_resolved).is_none() {
+        // Read permission on source
+        if let Some(meta) = vfs.get_meta(&src_resolved) {
+            check_access(meta, AccessMode::Read, uid, gid)?;
+        }
+    }
+
+    // Determine the actual destination
     let actual_dst = if vfs
         .is_dir_with_host(&dst_resolved, host_fs)
         .unwrap_or(false)
@@ -79,19 +77,34 @@ pub fn execute(
         dst_resolved.clone()
     };
 
+    // Write permission on destination parent
+    let dst_parent = match actual_dst.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(i) => actual_dst[..i].to_string(),
+        None => return Err("cp: invalid destination path".to_string()),
+    };
+    if host_fs.is_none() || vfs.find_mount(&dst_parent).is_none() {
+        if let Some(meta) = vfs.get_meta(&dst_parent) {
+            check_access(meta, AccessMode::Write, uid, gid)?;
+        }
+    }
+
     if vfs
         .is_dir_with_host(&src_resolved, host_fs)
         .unwrap_or(false)
     {
-        // Directory copy: recursively copy contents using list_dir_with_host
-        copy_dir_recursive(vfs, &src_resolved, &actual_dst, host_fs)?;
+        copy_dir_recursive(vfs, &src_resolved, &actual_dst, uid, gid, host_fs)?;
     } else {
-        // File copy: read source, write to destination
         let content = vfs
             .read_file_with_host(&src_resolved, host_fs)
             .map_err(|e| format!("cp: {}", e))?;
         vfs.write_file_with_host(&actual_dst, &content, host_fs)
             .map_err(|e| format!("cp: {}", e))?;
+        // Set ownership of the copied file to the current user
+        if let Some(meta) = vfs.get_meta_mut(&actual_dst) {
+            meta.uid = uid;
+            meta.gid = gid;
+        }
     }
 
     Ok(String::new())
@@ -102,12 +115,17 @@ fn copy_dir_recursive(
     vfs: &mut Vfs,
     src: &str,
     dst: &str,
+    uid: u32,
+    gid: u32,
     host_fs: Option<&dyn HostFs>,
 ) -> Result<String, String> {
-    // Create the destination directory
     vfs.mkdir_with_host(dst, host_fs)?;
+    // Set ownership of copied directory
+    if let Some(meta) = vfs.get_meta_mut(dst) {
+        meta.uid = uid;
+        meta.gid = gid;
+    }
 
-    // List source directory contents
     let entries = vfs
         .list_dir_with_host(src, host_fs)
         .map_err(|e| format!("cp: {}", e))?;
@@ -118,13 +136,18 @@ fn copy_dir_recursive(
         let child_dst = format!("{}/{}", dst.trim_end_matches('/'), name);
 
         if entry.is_dir() {
-            copy_dir_recursive(vfs, &child_src, &child_dst, host_fs)?;
+            copy_dir_recursive(vfs, &child_src, &child_dst, uid, gid, host_fs)?;
         } else {
             let content = vfs
                 .read_file_with_host(&child_src, host_fs)
                 .map_err(|e| format!("cp: {}", e))?;
             vfs.write_file_with_host(&child_dst, &content, host_fs)
                 .map_err(|e| format!("cp: {}", e))?;
+            // Set ownership of copied file
+            if let Some(meta) = vfs.get_meta_mut(&child_dst) {
+                meta.uid = uid;
+                meta.gid = gid;
+            }
         }
     }
 
@@ -145,7 +168,14 @@ impl super::Command for CpCommand {
         "Copy files or directories"
     }
     fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
+        execute(
+            &mut ctx.state.vfs,
+            ctx.args,
+            ctx.state.euid,
+            ctx.state.gid,
+            ctx.host_fs,
+        )
+        .into()
     }
 
     fn synopsis(&self) -> &'static str {
@@ -169,9 +199,9 @@ mod tests {
     fn copy_file() {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/src.txt", "data").unwrap();
-        execute(&mut vfs, &["/tmp/src.txt", "/tmp/dst.txt"], None).unwrap();
+        execute(&mut vfs, &["/tmp/src.txt", "/tmp/dst.txt"], 0, 0, None).unwrap();
         assert_eq!(vfs.read_file("/tmp/dst.txt").unwrap(), "data");
-        assert_eq!(vfs.read_file("/tmp/src.txt").unwrap(), "data"); // original intact
+        assert_eq!(vfs.read_file("/tmp/src.txt").unwrap(), "data");
     }
 
     #[test]
@@ -179,19 +209,19 @@ mod tests {
         let mut vfs = Vfs::new();
         vfs.write_file("/tmp/f.txt", "data").unwrap();
         vfs.mkdir("/tmp/dest").unwrap();
-        execute(&mut vfs, &["/tmp/f.txt", "/tmp/dest"], None).unwrap();
+        execute(&mut vfs, &["/tmp/f.txt", "/tmp/dest"], 0, 0, None).unwrap();
         assert_eq!(vfs.read_file("/tmp/dest/f.txt").unwrap(), "data");
     }
 
     #[test]
     fn copy_nonexistent_errors() {
         let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &["/nope", "/tmp/dst"], None).is_err());
+        assert!(execute(&mut vfs, &["/nope", "/tmp/dst"], 0, 0, None).is_err());
     }
 
     #[test]
     fn missing_destination() {
         let mut vfs = Vfs::new();
-        assert!(execute(&mut vfs, &["/tmp/src"], None).is_err());
+        assert!(execute(&mut vfs, &["/tmp/src"], 0, 0, None).is_err());
     }
 }

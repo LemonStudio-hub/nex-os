@@ -17,8 +17,25 @@
 
 use super::host_fs::HostFs;
 use super::node::{ChunkedContent, DirNode, FileNode, FsNode};
+use super::permissions::{default_dir_meta, default_file_meta, NodeMeta};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+
+/// Get the current timestamp as seconds since Unix epoch.
+///
+/// On wasm32, uses `Date.now()`. On native targets, returns a fixed value
+/// for test determinism.
+pub fn current_timestamp() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Date.now() returns milliseconds
+        (js_sys::Date::now() / 1000.0) as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        1_700_000_000 // Fixed test value
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Pure helper functions (no VFS state access)
@@ -103,27 +120,42 @@ impl Vfs {
     ///
     /// The cwd is set to `"/"` (root).
     pub fn new() -> Self {
+        let now = current_timestamp();
+
         let mut root = DirNode {
             name: String::new(), // root's name is empty for convenience
             children: HashMap::new(),
+            meta: NodeMeta::root_default(now),
         };
 
-        // Helper to create an empty dir quickly
-        fn empty_dir(name: &str) -> FsNode {
+        // Helper to create an empty dir with metadata
+        fn empty_dir(name: &str, uid: u32, gid: u32, now: u64) -> FsNode {
             FsNode::Directory(DirNode {
                 name: name.to_string(),
                 children: HashMap::new(),
+                meta: NodeMeta::dir_default(uid, gid, now),
             })
         }
 
-        root.children.insert("home".to_string(), empty_dir("home"));
-        root.children.insert("tmp".to_string(), empty_dir("tmp"));
-        root.children.insert("etc".to_string(), empty_dir("etc"));
-        root.children.insert("var".to_string(), empty_dir("var"));
+        // Default dirs owned by root
+        root.children
+            .insert("home".to_string(), empty_dir("home", 0, 0, now));
+        root.children
+            .insert("tmp".to_string(), empty_dir("tmp", 0, 0, now));
+        root.children
+            .insert("etc".to_string(), empty_dir("etc", 0, 0, now));
+        root.children
+            .insert("var".to_string(), empty_dir("var", 0, 0, now));
 
-        // Create /home/user
+        // /tmp gets sticky bit
+        if let Some(FsNode::Directory(ref mut tmp)) = root.children.get_mut("tmp") {
+            tmp.meta.mode = 0o1777;
+        }
+
+        // Create /home/user owned by uid 1000
         if let Some(FsNode::Directory(ref mut home)) = root.children.get_mut("home") {
-            home.children.insert("user".to_string(), empty_dir("user"));
+            home.children
+                .insert("user".to_string(), empty_dir("user", 1000, 1000, now));
         }
 
         Vfs {
@@ -265,6 +297,26 @@ impl Vfs {
         Some(current)
     }
 
+    /// Get the metadata for the node at the given absolute `path`.
+    ///
+    /// Returns the root metadata when `path` is `"/"`.
+    pub fn get_meta(&self, path: &str) -> Option<&NodeMeta> {
+        if path == "/" || path.is_empty() {
+            return Some(&self.root.meta);
+        }
+        self.get_node_at(path).map(|n| n.meta())
+    }
+
+    /// Get mutable metadata for the node at the given absolute `path`.
+    ///
+    /// Returns the root metadata when `path` is `"/"`.
+    pub fn get_meta_mut(&mut self, path: &str) -> Option<&mut NodeMeta> {
+        if path == "/" || path.is_empty() {
+            return Some(&mut self.root.meta);
+        }
+        self.get_node_at_mut(path).map(|n| n.meta_mut())
+    }
+
     // ---- File / directory operations ------------------------------------------
 
     /// Create a new directory at the given absolute `path`.
@@ -276,6 +328,13 @@ impl Vfs {
     /// Returns `Err` if the parent is missing or a node with the same name
     /// already exists.
     pub fn mkdir(&mut self, path: &str) -> Result<String, String> {
+        self.mkdir_with_owner(path, 0, 0)
+    }
+
+    /// Create a new directory at `path` owned by the given uid/gid.
+    ///
+    /// Like [`mkdir`] but sets the new directory's owner.
+    pub fn mkdir_with_owner(&mut self, path: &str, uid: u32, gid: u32) -> Result<String, String> {
         let (parent_path, name) = self.split_parent_name(path)?;
         let parent = self.get_dir_mut(&parent_path).ok_or_else(|| {
             format!(
@@ -296,6 +355,7 @@ impl Vfs {
             FsNode::Directory(DirNode {
                 name,
                 children: HashMap::new(),
+                meta: NodeMeta::dir_default(uid, gid, current_timestamp()),
             }),
         );
         Ok(String::new())
@@ -307,6 +367,14 @@ impl Vfs {
     ///
     /// Returns `Err` if the parent directory does not exist.
     pub fn touch(&mut self, path: &str) -> Result<String, String> {
+        self.touch_with_owner(path, 0, 0)
+    }
+
+    /// Create an empty file at `path` owned by the given uid/gid.
+    ///
+    /// Like [`touch`] but sets the new file's owner.  No-op if the file
+    /// already exists.
+    pub fn touch_with_owner(&mut self, path: &str, uid: u32, gid: u32) -> Result<String, String> {
         if self.exists(path) {
             return Ok(String::new());
         }
@@ -323,6 +391,7 @@ impl Vfs {
             FsNode::File(FileNode {
                 name,
                 content: ChunkedContent::new(),
+                meta: NodeMeta::file_default(uid, gid, current_timestamp()),
             }),
         );
         self.mark_dirty(path);
@@ -416,6 +485,19 @@ impl Vfs {
     ///
     /// Returns `Err` if the parent directory does not exist.
     pub fn write_file(&mut self, path: &str, content: &str) -> Result<String, String> {
+        self.write_file_with_owner(path, content, 0, 0)
+    }
+
+    /// Write `content` to the file at `path`, creating with the given owner if new.
+    ///
+    /// Like [`write_file`] but sets the owner on newly created files.
+    pub fn write_file_with_owner(
+        &mut self,
+        path: &str,
+        content: &str,
+        uid: u32,
+        gid: u32,
+    ) -> Result<String, String> {
         // If file already exists, update in place
         if let Some(FsNode::File(f)) = self.get_node_at_mut(path) {
             f.content = ChunkedContent::from_string(content);
@@ -437,6 +519,7 @@ impl Vfs {
             FsNode::File(FileNode {
                 name,
                 content: ChunkedContent::from_string(content),
+                meta: NodeMeta::file_default(uid, gid, current_timestamp()),
             }),
         );
         self.mark_dirty(path);
@@ -667,11 +750,13 @@ impl Vfs {
                             FsNode::Directory(DirNode {
                                 name: e.name,
                                 children: HashMap::new(),
+                                meta: default_dir_meta(),
                             })
                         } else {
                             FsNode::File(FileNode {
                                 name: e.name,
                                 content: ChunkedContent::new(),
+                                meta: default_file_meta(),
                             })
                         }
                     })
@@ -717,13 +802,24 @@ impl Vfs {
         path: &str,
         host_fs: Option<&dyn HostFs>,
     ) -> Result<String, String> {
+        self.mkdir_with_host_and_owner(path, host_fs, 0, 0)
+    }
+
+    /// Create a directory with owner, delegating to `HostFs` if mounted.
+    pub fn mkdir_with_host_and_owner(
+        &mut self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+        uid: u32,
+        gid: u32,
+    ) -> Result<String, String> {
         let resolved = self.resolve_path(path)?;
         if let Some(hfs) = host_fs {
             if let Some((_mount, relative)) = self.find_mount(&resolved) {
                 return hfs.mkdir(relative);
             }
         }
-        self.mkdir(&resolved)
+        self.mkdir_with_owner(&resolved, uid, gid)
     }
 
     /// Touch a file, delegating to `HostFs` if mounted.
@@ -732,13 +828,24 @@ impl Vfs {
         path: &str,
         host_fs: Option<&dyn HostFs>,
     ) -> Result<String, String> {
+        self.touch_with_host_and_owner(path, host_fs, 0, 0)
+    }
+
+    /// Touch a file with owner, delegating to `HostFs` if mounted.
+    pub fn touch_with_host_and_owner(
+        &mut self,
+        path: &str,
+        host_fs: Option<&dyn HostFs>,
+        uid: u32,
+        gid: u32,
+    ) -> Result<String, String> {
         let resolved = self.resolve_path(path)?;
         if let Some(hfs) = host_fs {
             if let Some((_mount, relative)) = self.find_mount(&resolved) {
                 return hfs.touch(relative);
             }
         }
-        self.touch(&resolved)
+        self.touch_with_owner(&resolved, uid, gid)
     }
 
     /// Remove a node, delegating to `HostFs` if mounted.

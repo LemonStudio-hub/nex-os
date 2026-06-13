@@ -582,12 +582,13 @@ fn test_chmod_invalid_mode() {
     assert!(out.contains("invalid mode"));
 }
 
-/// `chown` with a valid owner should succeed silently.
+/// `chown` as non-root should report permission denied.
 #[test]
 fn test_chown_valid() {
     let mut shell = new_shell();
-    let out = shell.execute("chown alice /tmp/f.txt");
-    assert!(out.is_empty()); // no error
+    shell.execute("touch /tmp/f.txt");
+    let out = shell.execute("chown root /tmp/f.txt");
+    assert!(out.contains("Operation not permitted"));
 }
 
 // =========================================================================
@@ -910,15 +911,18 @@ fn test_ls_direct() {
     assert!(out.contains("ls_dir"));
 }
 
-/// `ls -l` should show type indicators and names.
+/// `ls -l` should show permissions, owner, group, size, and names.
 #[test]
 fn test_ls_long_format() {
     let mut shell = new_shell();
     shell.execute("touch /tmp/ls_l.txt");
     shell.execute("mkdir /tmp/ls_d");
     let out = shell.execute("ls -l /tmp");
-    assert!(out.contains("- ls_l.txt"));
-    assert!(out.contains("d ls_d/"));
+    // Long format should contain permission strings and file names
+    assert!(out.contains("ls_l.txt"));
+    assert!(out.contains("ls_d/"));
+    // Should contain permission indicators
+    assert!(out.contains("rw"));
 }
 
 /// `ls` on a single file should show just that file's name.

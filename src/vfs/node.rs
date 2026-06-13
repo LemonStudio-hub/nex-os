@@ -9,6 +9,7 @@
 //! that only the relevant portion needs to be read for line-range queries
 //! (e.g. `head`, `tail`).
 
+use super::permissions::{default_dir_meta, default_file_meta, NodeMeta};
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
@@ -313,6 +314,9 @@ pub struct FileNode {
     pub name: String,
     /// File content stored in fixed-size chunks.
     pub content: ChunkedContent,
+    /// File metadata (permissions, ownership, timestamps).
+    #[serde(default = "default_file_meta")]
+    pub meta: NodeMeta,
 }
 
 impl FileNode {
@@ -341,6 +345,9 @@ pub struct DirNode {
     pub name: String,
     /// Map of child name → child node.
     pub children: HashMap<String, FsNode>,
+    /// Directory metadata (permissions, ownership, timestamps).
+    #[serde(default = "default_dir_meta")]
+    pub meta: NodeMeta,
 }
 
 impl FsNode {
@@ -363,6 +370,22 @@ impl FsNode {
     /// Returns `true` if this node is a directory.
     pub fn is_dir(&self) -> bool {
         matches!(self, FsNode::Directory(_))
+    }
+
+    /// Get an immutable reference to this node's metadata.
+    pub fn meta(&self) -> &NodeMeta {
+        match self {
+            FsNode::File(f) => &f.meta,
+            FsNode::Directory(d) => &d.meta,
+        }
+    }
+
+    /// Get a mutable reference to this node's metadata.
+    pub fn meta_mut(&mut self) -> &mut NodeMeta {
+        match self {
+            FsNode::File(f) => &mut f.meta,
+            FsNode::Directory(d) => &mut d.meta,
+        }
     }
 }
 
@@ -586,6 +609,7 @@ mod tests {
         let f = FileNode {
             name: "test.txt".to_string(),
             content: ChunkedContent::from_string("a\nb\nc\nd\ne"),
+            meta: default_file_meta(),
         };
         assert_eq!(f.read_lines(1, 3), "b\nc\nd");
     }
@@ -595,6 +619,7 @@ mod tests {
         let f = FileNode {
             name: "test.txt".to_string(),
             content: ChunkedContent::from_string("a\nb\nc"),
+            meta: default_file_meta(),
         };
         assert_eq!(f.line_count(), 3);
     }
@@ -606,6 +631,7 @@ mod tests {
         let mut node = FsNode::File(FileNode {
             name: "old.txt".to_string(),
             content: ChunkedContent::new(),
+            meta: default_file_meta(),
         });
         assert_eq!(node.name(), "old.txt");
         node.set_name("new.txt".to_string());
@@ -617,10 +643,12 @@ mod tests {
         let file = FsNode::File(FileNode {
             name: "f".to_string(),
             content: ChunkedContent::new(),
+            meta: default_file_meta(),
         });
         let dir = FsNode::Directory(DirNode {
             name: "d".to_string(),
             children: HashMap::new(),
+            meta: default_dir_meta(),
         });
         assert!(!file.is_dir());
         assert!(dir.is_dir());

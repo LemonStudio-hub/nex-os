@@ -37,35 +37,23 @@
 //! * Target does not exist.
 //! * Target is a directory and `-r` was not specified.
 
+use crate::vfs::permissions::{check_access, check_delete_in_sticky, AccessMode};
 use crate::vfs::{HostFs, Vfs};
 
 /// Execute the `rm` command.
 ///
-/// Separates flags from path arguments, then removes each target.  Files
-/// are removed with [`Vfs::rm`]; directories require the recursive flag
-/// and use [`Vfs::rm_recursive`].
-///
-/// # Arguments
-///
-/// * `vfs` -- Mutable reference to the virtual file system.
-/// * `args` -- Command-line arguments (flags + target paths).
-/// * `host_fs` -- Optional host filesystem adapter for mounted directories.
-///
-/// # Returns
-///
-/// `Ok(String::new())` on success (rm produces no output), or
-/// `Err(message)` describing the failure.
+/// Separates flags from path arguments, then removes each target.  Checks
+/// write permission on the parent directory and sticky bit before removal.
 pub fn execute(
     vfs: &mut Vfs,
     args: &[&str],
+    uid: u32,
+    gid: u32,
     host_fs: Option<&dyn HostFs>,
 ) -> Result<String, String> {
     let mut recursive = false;
     let mut paths: Vec<&str> = Vec::new();
 
-    // Recognise all three recursive flag variants.  In real `rm`, `-rf`
-    // and `-fr` are both common patterns, so we accept them for
-    // compatibility with muscle memory.
     for arg in args {
         match *arg {
             "-r" | "-rf" | "-fr" => recursive = true,
@@ -87,10 +75,29 @@ pub fn execute(
             ));
         }
 
-        // Directories cannot be removed without the recursive flag,
-        // matching real `rm` which prints "Is a directory" in this case.
         if vfs.is_dir_with_host(&resolved, host_fs).unwrap_or(false) && !recursive {
             return Err(format!("rm: cannot remove '{}': Is a directory", path));
+        }
+
+        // Permission checks (skip for host-mounted paths)
+        if host_fs.is_none() || vfs.find_mount(&resolved).is_none() {
+            // Check write permission on the parent directory
+            let parent_path = match resolved.rfind('/') {
+                Some(0) => "/".to_string(),
+                Some(i) => resolved[..i].to_string(),
+                None => return Err("rm: invalid path".to_string()),
+            };
+
+            if let Some(parent_meta) = vfs.get_meta(&parent_path) {
+                check_access(parent_meta, AccessMode::Write, uid, gid)?;
+            }
+
+            // Sticky bit check: only file owner, dir owner, or root can delete
+            if let (Some(parent_meta), Some(file_meta)) =
+                (vfs.get_meta(&parent_path), vfs.get_meta(&resolved))
+            {
+                check_delete_in_sticky(parent_meta, file_meta, uid)?;
+            }
         }
 
         if recursive {
@@ -121,7 +128,14 @@ impl super::Command for RmCommand {
 
     /// Execute the command, forwarding VFS and arguments from the context.
     fn execute(&self, ctx: &mut super::CommandContext) -> super::CommandOutput {
-        execute(&mut ctx.state.vfs, ctx.args, ctx.host_fs).into()
+        execute(
+            &mut ctx.state.vfs,
+            ctx.args,
+            ctx.state.euid,
+            ctx.state.gid,
+            ctx.host_fs,
+        )
+        .into()
     }
 
     fn synopsis(&self) -> &'static str {
