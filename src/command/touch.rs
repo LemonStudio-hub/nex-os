@@ -40,7 +40,11 @@ use crate::vfs::{HostFs, Vfs};
 ///
 /// `Ok(String::new())` on success (touch produces no stdout), or `Err` if
 /// no file operand is given or a path cannot be resolved.
-pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &mut Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn HostFs>,
+) -> Result<String, String> {
     if args.is_empty() {
         return Err("touch: missing file operand".to_string());
     }

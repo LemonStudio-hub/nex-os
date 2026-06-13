@@ -50,7 +50,11 @@ use crate::vfs::Vfs;
 ///
 /// `Ok(String)` with formatted count output, or `Err` if no file operand
 /// is given or a path cannot be resolved.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut show_lines = false;
     let mut show_words = false;
     let mut show_chars = false;

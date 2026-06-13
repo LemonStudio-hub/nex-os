@@ -24,8 +24,11 @@ fn setup() -> (Service, ShellState) {
     let mut vfs = Vfs::new();
     vfs.write_file("/home/user/hello.txt", "Hello, World!")
         .unwrap();
-    vfs.write_file("/home/user/lines.txt", "line1\nline2\nline3\nline4\nline5\n")
-        .unwrap();
+    vfs.write_file(
+        "/home/user/lines.txt",
+        "line1\nline2\nline3\nline4\nline5\n",
+    )
+    .unwrap();
     vfs.mkdir("/home/user/subdir").unwrap();
     vfs.write_file("/home/user/subdir/nested.txt", "nested content")
         .unwrap();

@@ -53,7 +53,11 @@ use crate::vfs::Vfs;
 /// `Ok(sorted_output)` with lines joined by newlines, or `Err` if the
 /// file argument is missing, the file does not exist, or too many
 /// arguments are provided.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut reverse = false;
     let mut file_path: Option<&str> = None;
 

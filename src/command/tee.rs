@@ -43,7 +43,12 @@ use crate::vfs::{HostFs, Vfs};
 ///
 /// `Ok(input)` -- the input is passed through unchanged to stdout, or `Err`
 /// if no file operand is given or a write fails.
-pub fn execute(vfs: &mut Vfs, input: &str, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &mut Vfs,
+    input: &str,
+    args: &[&str],
+    host_fs: Option<&dyn HostFs>,
+) -> Result<String, String> {
     let mut append = false;
     let mut files: Vec<&str> = Vec::new();
 
@@ -65,7 +70,9 @@ pub fn execute(vfs: &mut Vfs, input: &str, args: &[&str], host_fs: Option<&dyn H
         let write_result = if append {
             // In append mode, read whatever is already there (defaulting to
             // empty for new files) and concatenate the new input.
-            let existing = vfs.read_file_with_host(&resolved, host_fs).unwrap_or_default();
+            let existing = vfs
+                .read_file_with_host(&resolved, host_fs)
+                .unwrap_or_default();
             vfs.write_file_with_host(&resolved, &format!("{}{}", existing, input), host_fs)
         } else {
             // In overwrite mode, simply replace the entire file.

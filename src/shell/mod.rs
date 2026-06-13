@@ -397,9 +397,7 @@ mod tests {
         let mut state = ShellState::new(Vfs::new());
         state.history.push("ls".to_string());
         state.history.push("cd /tmp".to_string());
-        state
-            .env_vars
-            .insert("FOO".to_string(), "bar".to_string());
+        state.env_vars.insert("FOO".to_string(), "bar".to_string());
 
         let json = state.to_state_json();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -413,8 +411,7 @@ mod tests {
     fn from_state_json_with_vfs_restores_history() {
         let vfs = Vfs::new();
         let saved = r#"{"history":["ls","pwd"],"env_vars":{},"hostname":"nexos"}"#;
-        let state =
-            ShellState::from_state_json_with_vfs(vfs, Some(saved), "user").unwrap();
+        let state = ShellState::from_state_json_with_vfs(vfs, Some(saved), "user").unwrap();
         assert_eq!(state.history, vec!["ls", "pwd"]);
     }
 
@@ -422,8 +419,7 @@ mod tests {
     fn from_state_json_with_vfs_merges_env_vars() {
         let vfs = Vfs::new();
         let saved = r#"{"history":[],"env_vars":{"FOO":"bar","EDITOR":"vim"},"hostname":"nexos"}"#;
-        let state =
-            ShellState::from_state_json_with_vfs(vfs, Some(saved), "user").unwrap();
+        let state = ShellState::from_state_json_with_vfs(vfs, Some(saved), "user").unwrap();
         // User-set var is present
         assert_eq!(state.env_vars.get("FOO").unwrap(), "bar");
         // Default vars are still present

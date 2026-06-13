@@ -42,7 +42,11 @@ use crate::vfs::Vfs;
 ///
 /// `Ok(String)` with the filtered output, or `Err` if the file operand
 /// is missing or arguments are invalid.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut show_count = false;
     let mut file_path: Option<&str> = None;
 

@@ -37,7 +37,11 @@ use crate::vfs::Vfs;
 ///
 /// Propagates VFS resolution/read errors, or returns a descriptive error for
 /// missing files, directories, and empty argument lists.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     if args.is_empty() {
         return Err("cat: missing file operand".to_string());
     }

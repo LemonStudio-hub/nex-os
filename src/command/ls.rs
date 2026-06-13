@@ -53,7 +53,11 @@ use crate::vfs::Vfs;
 ///
 /// `Ok(output)` with the formatted listing, or `Err` if the path does not
 /// exist or cannot be read.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut long_format = false;
     let mut path = ".";
     let mut path_set = false;

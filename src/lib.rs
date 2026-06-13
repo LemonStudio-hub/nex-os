@@ -177,8 +177,7 @@ pub fn execute_command(state_json: &str, input: &str) -> String {
                     if reg.is_empty() {
                         service.execute_command(&mut state, input, None)
                     } else {
-                        let host_fs: Option<&dyn HostFs> =
-                            reg.values().next().map(|b| b.as_ref());
+                        let host_fs: Option<&dyn HostFs> = reg.values().next().map(|b| b.as_ref());
                         service.execute_command(&mut state, input, host_fs)
                     }
                 })

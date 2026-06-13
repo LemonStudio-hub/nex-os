@@ -42,7 +42,11 @@ use crate::vfs::Vfs;
 /// # Returns
 ///
 /// The first N lines of the file joined by newlines, or an error.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut count: usize = 10; // Default matches POSIX head behavior.
     let mut file_path: Option<&str> = None;
 

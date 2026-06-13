@@ -51,7 +51,11 @@ use crate::vfs::{HostFs, Vfs};
 ///
 /// Returns immediately (no partial output) if the mode is invalid or the
 /// argument count is too low.
-pub fn execute(vfs: &mut Vfs, args: &[&str], _host_fs: Option<&dyn HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &mut Vfs,
+    args: &[&str],
+    _host_fs: Option<&dyn HostFs>,
+) -> Result<String, String> {
     if args.len() < 2 {
         return Err("chmod: missing operand".to_string());
     }

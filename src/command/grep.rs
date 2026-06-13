@@ -44,7 +44,11 @@ use crate::vfs::Vfs;
 ///
 /// Matching lines (with optional prefixes), or an error if pattern/file
 /// arguments are missing.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut case_insensitive = false;
     let mut show_line_numbers = false;
     let mut positional: Vec<&str> = Vec::new();

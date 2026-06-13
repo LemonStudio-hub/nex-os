@@ -41,7 +41,11 @@ use crate::vfs::Vfs;
 /// # Errors
 ///
 /// Returns an error for wrong argument count or VFS read failures.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     if args.len() < 2 {
         return Err("diff: missing file operand".to_string());
     }

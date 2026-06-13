@@ -40,7 +40,11 @@ use crate::vfs::{FsNode, Vfs};
 /// # Returns
 ///
 /// Formatted string of directory sizes, or an error for unknown options.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut human = false;
     let mut summary = false;
     // Default to current directory when no path is provided.
@@ -85,7 +89,10 @@ fn dir_size(vfs: &Vfs, path: &str, host_fs: Option<&dyn crate::vfs::HostFs>) -> 
         Err(_) => {
             // Not a directory -- attempt to read as a file and return its
             // content length, or 0 if the read also fails.
-            return vfs.read_file_with_host(path, host_fs).map(|c| c.len()).unwrap_or(0);
+            return vfs
+                .read_file_with_host(path, host_fs)
+                .map(|c| c.len())
+                .unwrap_or(0);
         }
     };
 
@@ -111,7 +118,14 @@ fn dir_size(vfs: &Vfs, path: &str, host_fs: Option<&dyn crate::vfs::HostFs>) -> 
 /// `display_path` tracks the user-visible path (relative or absolute),
 /// while `abs_path` is the resolved VFS path used for lookups. The
 /// distinction is needed so that output paths match what the user typed.
-fn collect_sizes(vfs: &Vfs, abs_path: &str, display_path: &str, human: bool, output: &mut String, host_fs: Option<&dyn crate::vfs::HostFs>) {
+fn collect_sizes(
+    vfs: &Vfs,
+    abs_path: &str,
+    display_path: &str,
+    human: bool,
+    output: &mut String,
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) {
     let entries = match vfs.list_dir_with_host(abs_path, host_fs) {
         Ok(e) => e,
         Err(_) => return,

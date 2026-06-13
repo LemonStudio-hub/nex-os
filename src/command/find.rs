@@ -36,7 +36,11 @@ use crate::vfs::Vfs;
 /// # Returns
 ///
 /// Newline-separated list of matching paths, or an error if `-name` is missing.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut search_path = ".";
     let mut pattern: Option<&str> = None;
 
@@ -76,7 +80,13 @@ pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs
 /// Uses `name.contains(pattern)` for matching -- this means "readme"
 /// will match "readme.txt", "README.md", etc. The match is always
 /// against the entry name only, not the full path.
-fn collect_matches(vfs: &Vfs, dir_path: &str, pattern: &str, results: &mut Vec<String>, host_fs: Option<&dyn crate::vfs::HostFs>) {
+fn collect_matches(
+    vfs: &Vfs,
+    dir_path: &str,
+    pattern: &str,
+    results: &mut Vec<String>,
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) {
     let entries = match vfs.list_dir_with_host(dir_path, host_fs) {
         Ok(e) => e,
         // If we can't list the directory (e.g., it's actually a file),

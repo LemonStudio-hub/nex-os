@@ -39,7 +39,11 @@ use crate::vfs::{FsNode, Vfs};
 ///
 /// `Ok(String)` containing the formatted tree with a summary line, or `Err`
 /// if the path does not exist.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let path = if args.is_empty() { "." } else { args[0] };
     let resolved = vfs.resolve_path(path)?;
 

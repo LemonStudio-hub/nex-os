@@ -77,9 +77,7 @@ pub fn execute(ctx: &mut CommandContext) -> CommandOutput {
             }
         }
         // Register a placeholder mount entry so the frontend knows the path
-        ctx.state
-            .vfs
-            .add_mount(path.clone(), String::new());
+        ctx.state.vfs.add_mount(path.clone(), String::new());
         // Return a mount request action for the frontend to intercept
         CommandOutput::mount_request(path)
     }
@@ -145,7 +143,9 @@ mod tests {
         let service = Service::new();
         let mut state = ShellState::new(Vfs::new());
         // Manually add a mount
-        state.vfs.add_mount("/mnt/host".to_string(), "host".to_string());
+        state
+            .vfs
+            .add_mount("/mnt/host".to_string(), "host".to_string());
         state.vfs.mkdir("/mnt").unwrap();
         state.vfs.mkdir("/mnt/host").unwrap();
         let output = service.execute_command(&mut state, "mount -u /mnt/host", None);
@@ -165,8 +165,12 @@ mod tests {
     fn mount_lists_after_mount() {
         let service = Service::new();
         let mut state = ShellState::new(Vfs::new());
-        state.vfs.add_mount("/mnt/a".to_string(), "dir_a".to_string());
-        state.vfs.add_mount("/mnt/b".to_string(), "dir_b".to_string());
+        state
+            .vfs
+            .add_mount("/mnt/a".to_string(), "dir_a".to_string());
+        state
+            .vfs
+            .add_mount("/mnt/b".to_string(), "dir_b".to_string());
         let output = service.execute_command(&mut state, "mount", None);
         assert!(output.stdout.contains("/mnt/a -> dir_a"));
         assert!(output.stdout.contains("/mnt/b -> dir_b"));

@@ -40,7 +40,11 @@ use crate::vfs::{HostFs, Vfs};
 ///
 /// Returns an error if the source does not exist or the underlying VFS copy
 /// operation fails.
-pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &mut Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn HostFs>,
+) -> Result<String, String> {
     if args.len() < 2 {
         return Err("cp: missing destination operand".to_string());
     }
@@ -53,7 +57,10 @@ pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Re
     let src_resolved = vfs.resolve_path(src)?;
     let dst_resolved = vfs.resolve_path(dst)?;
 
-    if !vfs.exists_with_host(&src_resolved, host_fs).unwrap_or(false) {
+    if !vfs
+        .exists_with_host(&src_resolved, host_fs)
+        .unwrap_or(false)
+    {
         return Err(format!(
             "cp: cannot stat '{}': No such file or directory",
             src
@@ -62,14 +69,20 @@ pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Re
 
     // Determine the actual destination: if dst is an existing directory,
     // copy into it preserving the source basename.
-    let actual_dst = if vfs.is_dir_with_host(&dst_resolved, host_fs).unwrap_or(false) {
+    let actual_dst = if vfs
+        .is_dir_with_host(&dst_resolved, host_fs)
+        .unwrap_or(false)
+    {
         let basename = src_resolved.rsplit('/').next().unwrap_or(&src_resolved);
         format!("{}/{}", dst_resolved.trim_end_matches('/'), basename)
     } else {
         dst_resolved.clone()
     };
 
-    if vfs.is_dir_with_host(&src_resolved, host_fs).unwrap_or(false) {
+    if vfs
+        .is_dir_with_host(&src_resolved, host_fs)
+        .unwrap_or(false)
+    {
         // Directory copy: recursively copy contents using list_dir_with_host
         copy_dir_recursive(vfs, &src_resolved, &actual_dst, host_fs)?;
     } else {

@@ -56,7 +56,11 @@ use crate::vfs::{HostFs, Vfs};
 ///
 /// `Ok(String::new())` on success (mkdir produces no output), or
 /// `Err(message)` describing the failure.
-pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &mut Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn HostFs>,
+) -> Result<String, String> {
     let mut recursive = false;
     let mut paths: Vec<&str> = Vec::new();
 

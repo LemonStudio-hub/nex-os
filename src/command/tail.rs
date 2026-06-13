@@ -41,7 +41,11 @@ use crate::vfs::Vfs;
 ///
 /// `Ok(String)` containing the trailing lines joined by newlines (with a
 /// trailing newline), or `Err` if the file is missing or arguments are invalid.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     // Default to the POSIX-standard 10 lines when -n is not specified.
     let mut count: usize = 10;
     let mut file_path: Option<&str> = None;

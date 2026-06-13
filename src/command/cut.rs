@@ -50,7 +50,11 @@ use crate::vfs::Vfs;
 /// - Missing file operand.
 /// - Unknown option flag.
 /// - VFS resolution or read errors.
-pub fn execute(vfs: &Vfs, args: &[&str], host_fs: Option<&dyn crate::vfs::HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn crate::vfs::HostFs>,
+) -> Result<String, String> {
     let mut fields: Vec<usize> = Vec::new();
     // Default delimiter is tab, matching POSIX `cut` behaviour.
     let mut delimiter = '\t';

@@ -554,8 +554,8 @@ impl Vfs {
         // Check prefix match (path starts with mount + "/")
         for mount_path in self.mounts.keys() {
             if let Some(rest) = path.strip_prefix(mount_path.as_str()) {
-                if rest.starts_with('/') {
-                    return Some((mount_path.as_str(), &rest[1..]));
+                if let Some(stripped) = rest.strip_prefix('/') {
+                    return Some((mount_path.as_str(), stripped));
                 }
             }
         }

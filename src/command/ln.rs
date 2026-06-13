@@ -58,7 +58,11 @@ use crate::vfs::{HostFs, Vfs};
 ///
 /// `Ok(String::new())` on success (ln produces no output), or an
 /// `Err(message)` describing what went wrong.
-pub fn execute(vfs: &mut Vfs, args: &[&str], _host_fs: Option<&dyn HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &mut Vfs,
+    args: &[&str],
+    _host_fs: Option<&dyn HostFs>,
+) -> Result<String, String> {
     let mut symbolic = false;
     let mut positional: Vec<&str> = Vec::new();
 

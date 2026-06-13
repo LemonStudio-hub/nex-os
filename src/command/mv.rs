@@ -47,7 +47,11 @@ use crate::vfs::{HostFs, Vfs};
 ///
 /// `Ok(String::new())` on success (mv produces no output), or
 /// `Err(message)` if the source is missing or the move fails.
-pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Result<String, String> {
+pub fn execute(
+    vfs: &mut Vfs,
+    args: &[&str],
+    host_fs: Option<&dyn HostFs>,
+) -> Result<String, String> {
     // Both source and destination are required.
     if args.len() < 2 {
         return Err("mv: missing destination operand".to_string());
@@ -61,7 +65,10 @@ pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Re
     let src_resolved = vfs.resolve_path(src)?;
     let dst_resolved = vfs.resolve_path(dst)?;
 
-    if !vfs.exists_with_host(&src_resolved, host_fs).unwrap_or(false) {
+    if !vfs
+        .exists_with_host(&src_resolved, host_fs)
+        .unwrap_or(false)
+    {
         return Err(format!(
             "mv: cannot stat '{}': No such file or directory",
             src
@@ -70,7 +77,10 @@ pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Re
 
     // Determine the actual destination: if dst is an existing directory,
     // move into it preserving the source basename.
-    let actual_dst = if vfs.is_dir_with_host(&dst_resolved, host_fs).unwrap_or(false) {
+    let actual_dst = if vfs
+        .is_dir_with_host(&dst_resolved, host_fs)
+        .unwrap_or(false)
+    {
         let basename = src_resolved.rsplit('/').next().unwrap_or(&src_resolved);
         format!("{}/{}", dst_resolved.trim_end_matches('/'), basename)
     } else {
@@ -78,7 +88,10 @@ pub fn execute(vfs: &mut Vfs, args: &[&str], host_fs: Option<&dyn HostFs>) -> Re
     };
 
     // Copy the source to the destination using _with_host variants.
-    if vfs.is_dir_with_host(&src_resolved, host_fs).unwrap_or(false) {
+    if vfs
+        .is_dir_with_host(&src_resolved, host_fs)
+        .unwrap_or(false)
+    {
         copy_dir_recursive(vfs, &src_resolved, &actual_dst, host_fs)?;
         vfs.rm_recursive_with_host(&src_resolved, host_fs)?;
     } else {

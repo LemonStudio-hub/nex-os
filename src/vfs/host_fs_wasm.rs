@@ -34,9 +34,9 @@ pub struct WasmHostFs {
 /// Helper to extract a `Function` from a JS object by key.
 fn get_fn(obj: &JsValue, key: &str) -> Function {
     Reflect::get(obj, &JsValue::from_str(key))
-        .expect(&format!("callbacks.{} missing", key))
+        .unwrap_or_else(|_| panic!("callbacks.{key} missing"))
         .dyn_into::<Function>()
-        .expect(&format!("callbacks.{} is not a function", key))
+        .unwrap_or_else(|_| panic!("callbacks.{key} is not a function"))
 }
 
 /// Helper to call a JS function with a single string argument and return
@@ -51,11 +51,7 @@ fn call1_str(fn_: &Function, arg: &str) -> Result<String, String> {
 /// Helper to call a JS function with two string arguments.
 fn call2_str(fn_: &Function, a: &str, b: &str) -> Result<String, String> {
     let result = fn_
-        .call2(
-            &JsValue::NULL,
-            &JsValue::from_str(a),
-            &JsValue::from_str(b),
-        )
+        .call2(&JsValue::NULL, &JsValue::from_str(a), &JsValue::from_str(b))
         .map_err(|e| format!("JS error: {:?}", e))?;
     Ok(result.as_string().unwrap_or_default())
 }
@@ -156,7 +152,10 @@ impl HostFs for WasmHostFs {
         match result.as_str() {
             "true" => Ok(true),
             "false" => Ok(false),
-            _ => Err(format!("exists parse error: expected 'true'/'false', got '{}'", result)),
+            _ => Err(format!(
+                "exists parse error: expected 'true'/'false', got '{}'",
+                result
+            )),
         }
     }
 
@@ -165,7 +164,10 @@ impl HostFs for WasmHostFs {
         match result.as_str() {
             "true" => Ok(true),
             "false" => Ok(false),
-            _ => Err(format!("is_dir parse error: expected 'true'/'false', got '{}'", result)),
+            _ => Err(format!(
+                "is_dir parse error: expected 'true'/'false', got '{}'",
+                result
+            )),
         }
     }
 }
